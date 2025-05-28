@@ -67,9 +67,10 @@ Kiwi Key Generator uses the [Forge](https://github.com/digitalbazaar/forge) Java
 
 ### SSL Certificate Generation Process
 1. Create a Certificate Authority (CA) or upload an existing one
-2. Enter the domain name for your certificate
-3. Click "Create Certificate"
-4. Download your certificate, private key, and CA certificate
+2. Download the CA key and certificate if necessary
+3. Enter the domain name for your certificate
+4. Click "Create Certificate"
+5. Download your certificate and private key for your domain
 
 
 ## 🛠️ Development
