@@ -1,10 +1,13 @@
 # 🥝 Kiwi Key Generator
 
-Kiwi Key Generator is a browser-based tool for generating SSH keys and SSL certificates locally, without sending any data to external servers. It provides a clean, user-friendly interface for cryptographic operations that are typically performed via command line tools.
+> *Kiwi Key Generator is a browser-based tool for generating SSH keys and SSL certificates locally, without sending any data to external servers. It provides a clean, user-friendly interface for cryptographic operations that are typically performed via command line tools.*
+
+<div align="center">
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Powered By: JavaScript](https://img.shields.io/badge/Powered%20By-JavaScript-blue.svg)
 
+</div>
 ![Kiwi Key Generator Screenshot](kiwi-gen.png)
 
 ## 🚀 Live Demo
@@ -17,12 +20,10 @@ Try the live demo directly in your browser: [Kiwi Key Generator](https://derlock
 - Generate RSA, Ed25519, and ECDSA keys
 - Configurable key sizes (2048-bit, 4096-bit for RSA)
 - Optional passphrase protection
-- Automatic key comment generation
 - One-click download of private and public keys
 
 ### SSL Certificate Generation
-- Create self-signed Certificate Authority (CA)
-- Generate SSL certificates signed by your CA
+- Create Certificate Authority (CA)
 - Support for wildcard certificates (*.domain.com)
 - DES3 encryption option for private keys
 - Upload existing CA for certificate signing
@@ -36,8 +37,10 @@ Try the live demo directly in your browser: [Kiwi Key Generator](https://derlock
 
 ### Option 2: Run with a local web server
 If you prefer to use a local web server:
-
 ```bash
+# Clone this repository
+git clone https://github.com/derlocke-ng/kiwi-gen.git
+
 # Navigate to the kiwi-gen directory
 cd kiwi-gen
 
