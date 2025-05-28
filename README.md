@@ -7,10 +7,9 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Powered By: JavaScript](https://img.shields.io/badge/Powered%20By-JavaScript-blue.svg)
 
-</div>
-
 ![Kiwi Key Generator Screenshot](kiwi-gen.png)
 
+</div>
 ## 🚀 Live Demo
 
 Try the live demo directly in your browser: [Kiwi Key Generator](https://derlocke-ng.github.io/kiwi-gen/)
