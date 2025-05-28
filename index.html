@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kiwi Key Generator</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"></script>
+</head>
+<body>
+  <div class="main-wrapper">
+    <main>
+      <div class="app-header">
+        <h1>🥝 Kiwi Key Generator</h1>
+        <p>Local SSH & SSL Key Generation Tool</p>
+      </div>
+      
+      <div class="main-content">
+        <!-- Mode Toggle Buttons -->
+        <div class="mode-toggle">
+          <button type="button" id="sshModeBtn" class="mode-btn active">🔐 SSH Keys</button>
+          <button type="button" id="sslModeBtn" class="mode-btn">🔒 SSL Certificates</button>
+        </div>
+        
+        <!-- Unified Generation Section -->
+        <section id="generation-section" class="generator-section">
+          <div class="form-container">
+            
+            <!-- SSH Key Form -->
+            <div id="ssh-form" class="form-mode active">
+              <div class="form-group">
+                <label for="hostname">Hostname/Name:</label>
+                <input type="text" id="hostname" placeholder="e.g., myserver" required>
+              </div>
+              
+              <div class="form-group">
+                <label for="algorithm">Algorithm:</label>
+                <select id="algorithm">
+                  <option value="rsa">RSA</option>
+                  <option value="ed25519" selected>Ed25519</option>
+                  <option value="ecdsa">ECDSA</option>
+                </select>
+              </div>
+              
+              <div class="form-group" id="bit-size-group">
+                <label for="bitSize">Bit Size:</label>
+                <select id="bitSize">
+                  <option value="2048">2048</option>
+                  <option value="4096" selected>4096</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label for="passphrase">Passphrase:</label>
+                <div class="passphrase-container">
+                  <input type="password" id="passphrase" placeholder="Leave empty for no passphrase">
+                  <button type="button" id="generatePassphrase" class="btn-secondary">Generate</button>
+                </div>
+              </div>
+              
+              <button type="button" id="generateSSH" class="btn-primary">Generate SSH Key</button>
+            </div>
+            
+            <!-- SSL Certificate Form -->
+            <div id="ssl-form" class="form-mode">
+              <div class="ssl-buttons">
+                <button type="button" id="createCA" class="btn-primary">Create Certificate Authority (CA)</button>
+                <div class="ca-status" id="caStatus">No CA found</div>
+              </div>
+
+              <div class="form-group">
+                <label for="ca-passphrase">CA Private Key Passphrase:</label>
+                <div class="passphrase-container">
+                  <input type="password" id="ca-passphrase" placeholder="Leave empty for no encryption">
+                  <button type="button" id="generateCAPassphrase" class="btn-secondary">Generate</button>
+                </div>
+              </div>
+
+              <div class="upload-section-container">
+                <div class="upload-section-header">
+                  <h3><span class="fold-icon">📂</span> Or Upload Existing CA</h3>
+                </div>
+                <div class="upload-section-content">
+                  <div class="form-group">
+                    <label for="upload-ca-key">CA Private Key (.key):</label>
+                    <input type="file" id="upload-ca-key" accept=".key,.pem">
+                  </div>
+                  <div class="form-group">
+                    <label for="upload-ca-cert">CA Certificate (.pem):</label>
+                    <input type="file" id="upload-ca-cert" accept=".pem,.crt">
+                  </div>
+                  <div class="form-group">
+                    <label for="upload-ca-passphrase">CA Key Passphrase (if encrypted):</label>
+                    <input type="password" id="upload-ca-passphrase" placeholder="Leave empty if unencrypted">
+                  </div>
+                  <button type="button" id="uploadCA" class="btn-secondary">Load CA Files</button>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label for="domain">Domain Name:</label>
+                <input type="text" id="domain" placeholder="e.g., example.com">
+              </div>
+              
+              <button type="button" id="createCert" class="btn-primary" disabled>Create Certificate</button>
+            </div>
+            
+          </div>
+        </section>
+        
+        <!-- Output Section -->
+        <section id="output-section" class="generator-section">
+          <h2>📋 Generated Files</h2>
+          <div id="output" class="output-container">
+            <p class="output-placeholder">Generated keys and certificates will appear here...</p>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Theme Controls Popup -->
+  <div id="themePopup" class="theme-popup">
+    <div class="theme-popup-content">
+      <div class="theme-popup-header">
+        <h3>🎨 Theme Controls</h3>
+        <button id="closeTheme" class="close-btn">×</button>
+      </div>
+      <div class="theme-controls">
+        <div class="control-group">
+          <label for="contentSlider">📄 Content Color</label>
+          <div class="slider-container">
+            <input type="range" id="contentSlider" min="0" max="360" value="100" class="slider content-slider">
+            <div class="color-preview" id="contentPreview"></div>
+          </div>
+          <div class="color-info">
+            <span id="contentValue">100°</span>
+            <div class="color-swatch" id="contentSwatch"></div>
+          </div>
+        </div>
+        <div class="control-group">
+          <label for="headerSlider">🎨 Header Color</label>
+          <div class="slider-container">
+            <input type="range" id="headerSlider" min="0" max="360" value="210" class="slider header-slider">
+            <div class="color-preview" id="headerPreview"></div>
+          </div>
+          <div class="color-info">
+            <span id="headerValue">210°</span>
+            <div class="color-swatch" id="headerSwatch"></div>
+          </div>
+        </div>
+        <div class="control-group">
+          <button id="darkModeToggle" class="dark-mode-toggle">🌙 Dark Mode</button>
+        </div>
+        <div class="control-group">
+          <button id="resetTheme" class="btn-secondary reset-theme-btn">🔄 Reset to Defaults</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Theme Controls Button -->
+  <button id="openTheme" class="theme-button">🎨</button>
+
+  <script src="crypto-generator.js"></script>
+  <script src="theme.js"></script>
+</body>
+</html>
