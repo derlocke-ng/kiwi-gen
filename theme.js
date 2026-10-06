@@ -1,323 +1,78 @@
-// Kiwi Key Generator Theme Controller
-class ThemeController {
-  constructor() {
-    this.initializeElements();
-    this.loadSavedThemes();
-    this.setupEventListeners();
-  }
+// Kiwi Key Generator - appearance: theme (system/light/dark), accent hue and neutral tint.
+// Loaded in <head> so a saved theme applies before the first paint.
+(() => {
+  const root = document.documentElement;
+  const KEYS = { theme: 'kiwi-gen-theme', accent: 'kiwi-gen-contentHue', tint: 'kiwi-gen-headerHue' };
+  const DEFAULTS = { theme: 'system', accent: '100', tint: '210' };
 
-  initializeElements() {
-    // Theme popup elements
-    this.openThemeBtn = document.getElementById('openTheme');
-    this.closeThemeBtn = document.getElementById('closeTheme');
-    this.themePopup = document.getElementById('themePopup');
-    this.contentSlider = document.getElementById('contentSlider');
-    this.headerSlider = document.getElementById('headerSlider');
-    this.darkModeToggle = document.getElementById('darkModeToggle');
-    this.resetThemeBtn = document.getElementById('resetTheme');
-    this.contentValue = document.getElementById('contentValue');
-    this.headerValue = document.getElementById('headerValue');
-    
-    // Color preview elements
-    this.contentPreview = document.getElementById('contentPreview');
-    this.headerPreview = document.getElementById('headerPreview');
-    this.contentSwatch = document.getElementById('contentSwatch');
-    this.headerSwatch = document.getElementById('headerSwatch');
+  // Storage may be unavailable (private windows); appearance then just isn't remembered.
+  const load = key => { try { return localStorage.getItem(KEYS[key]) || DEFAULTS[key]; } catch { return DEFAULTS[key]; } };
+  const save = (key, value) => {
+    try {
+      if (value === DEFAULTS[key]) localStorage.removeItem(KEYS[key]);
+      else localStorage.setItem(KEYS[key], value);
+    } catch { /* not remembered */ }
+  };
 
-  }
-
-  loadSavedThemes() {
-    // Load saved themes or use defaults
-    const savedContentHue = localStorage.getItem('kiwi-gen-contentHue') || '100';
-    const savedHeaderHue = localStorage.getItem('kiwi-gen-headerHue') || '210';
-    const savedMode = localStorage.getItem('kiwi-gen-darkMode');
-    const savedDarkMode = savedMode === null
-      ? window.matchMedia('(prefers-color-scheme: dark)').matches
-      : savedMode === 'true';
-
-    // Apply slider values
-    if (this.contentSlider) {
-      this.contentSlider.value = savedContentHue;
-      if (this.contentValue) this.contentValue.textContent = savedContentHue + '°';
-    }
-    if (this.headerSlider) {
-      this.headerSlider.value = savedHeaderHue;
-      if (this.headerValue) this.headerValue.textContent = savedHeaderHue + '°';
-    }
-
-    // Update color previews
-    this.updateColorPreviews('content', savedContentHue, savedDarkMode);
-    this.updateColorPreviews('header', savedHeaderHue, savedDarkMode);
-
-    // Update toggle button text
-    this.updateDarkModeButtons(savedDarkMode);
-    
-    // Apply themes immediately
-    this.updateTheme('content', savedContentHue);
-    this.updateTheme('header', savedHeaderHue);
-    this.updateTheme('darkMode', savedDarkMode);
-  }
-
-  setupEventListeners() {
-    // Theme popup controls
-    if (this.openThemeBtn) {
-      this.openThemeBtn.addEventListener('click', () => {
-        this.showThemePopup();
-      });
-    }
-
-    if (this.closeThemeBtn) {
-      this.closeThemeBtn.addEventListener('click', () => {
-        this.hideThemePopup();
-      });
-    }
-
-    if (this.themePopup) {
-      this.themePopup.addEventListener('click', (e) => {
-        if (e.target === this.themePopup) {
-          this.hideThemePopup();
-        }
-      });
-    }
-
-    // Content slider
-    if (this.contentSlider) {
-      this.contentSlider.addEventListener('input', (e) => {
-        const isDark = document.documentElement.style.getPropertyValue('--dark-mode') === '1';
-        this.updateTheme('content', e.target.value);
-        this.updateColorPreviews('content', e.target.value, isDark);
-        if (this.contentValue) this.contentValue.textContent = e.target.value + '°';
-        localStorage.setItem('kiwi-gen-contentHue', e.target.value);
-      });
-    }
-
-    // Header slider
-    if (this.headerSlider) {
-      this.headerSlider.addEventListener('input', (e) => {
-        const isDark = document.documentElement.style.getPropertyValue('--dark-mode') === '1';
-        this.updateTheme('header', e.target.value);
-        this.updateColorPreviews('header', e.target.value, isDark);
-        if (this.headerValue) this.headerValue.textContent = e.target.value + '°';
-        localStorage.setItem('kiwi-gen-headerHue', e.target.value);
-      });
-    }
-
-    // Dark mode toggle
-    if (this.darkModeToggle) {
-      this.darkModeToggle.addEventListener('click', () => {
-        this.toggleDarkMode();
-      });
-    }
-
-    // Reset theme button
-    if (this.resetThemeBtn) {
-      this.resetThemeBtn.addEventListener('click', () => {
-        this.resetToDefaults();
-      });
-    }
-
-    // Color swatch click handlers for copying color values
-    if (this.contentSwatch) {
-      this.contentSwatch.addEventListener('click', () => {
-        this.copyColorValue('content');
-      });
-    }
-
-    if (this.headerSwatch) {
-      this.headerSwatch.addEventListener('click', () => {
-        this.copyColorValue('header');
-      });
-    }
-
-    // Color preview click handlers for copying color values
-    if (this.contentPreview) {
-      this.contentPreview.addEventListener('click', () => {
-        this.copyColorValue('content-preview');
-      });
-    }
-
-    if (this.headerPreview) {
-      this.headerPreview.addEventListener('click', () => {
-        this.copyColorValue('header-preview');
-      });
+  function apply(key, value) {
+    if (key === 'theme') {
+      if (value === 'system') delete root.dataset.theme;
+      else root.dataset.theme = value;
+    } else {
+      root.style.setProperty(key === 'accent' ? '--accent-hue' : '--tint-hue', value);
     }
   }
 
-  showThemePopup() {
-    if (this.themePopup) {
-      this.themePopup.classList.add('show');
+  // Earlier versions stored a dark-mode flag instead of a theme.
+  try {
+    const legacy = localStorage.getItem('kiwi-gen-darkMode');
+    if (legacy !== null) {
+      localStorage.removeItem('kiwi-gen-darkMode');
+      if (!localStorage.getItem(KEYS.theme)) save('theme', legacy === 'true' ? 'dark' : 'light');
     }
-  }
+  } catch { /* no storage */ }
 
-  hideThemePopup() {
-    if (this.themePopup) {
-      this.themePopup.classList.remove('show');
-    }
-  }
+  for (const key of Object.keys(KEYS)) apply(key, load(key));
 
-  toggleDarkMode() {
-    const newMode = document.documentElement.style.getPropertyValue('--dark-mode') !== '1';
-    const contentHue = this.contentSlider ? this.contentSlider.value : '100';
-    const headerHue = this.headerSlider ? this.headerSlider.value : '210';
-    
-    this.updateTheme('darkMode', newMode);
-    this.updateDarkModeButtons(newMode);
-    this.updateColorPreviews('content', contentHue, newMode);
-    this.updateColorPreviews('header', headerHue, newMode);
-    localStorage.setItem('kiwi-gen-darkMode', newMode.toString());
-  }
+  document.addEventListener('DOMContentLoaded', () => {
+    const $ = id => document.getElementById(id);
+    const popup = $('themePopup');
+    const sliders = { accent: $('accentSlider'), tint: $('tintSlider') };
+    const labels = { accent: $('accentValue'), tint: $('tintValue') };
 
-  updateColorPreviews(area, hue, isDark = false) {
-    if (area === 'content') {
-      const lightness = isDark ? 40 : 55;
-      const saturation = 45;
-      const previewColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-      const swatchColor = `hsl(${hue}, 60%, ${isDark ? 35 : 45}%)`;
-      
-      if (this.contentPreview) {
-        this.contentPreview.style.background = previewColor;
-        this.contentPreview.setAttribute('data-color', previewColor);
-        this.contentPreview.setAttribute('title', `Click to copy: ${previewColor}`);
-      }
-      if (this.contentSwatch) {
-        this.contentSwatch.style.background = swatchColor;
-        this.contentSwatch.setAttribute('data-color', swatchColor);
-        this.contentSwatch.setAttribute('title', `Click to copy: ${swatchColor}`);
-      }
-    } else if (area === 'header') {
-      const lightness = isDark ? 15 : 25;
-      const saturation = 25;
-      const previewColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-      const swatchColor = `hsl(${hue}, 60%, ${isDark ? 55 : 65}%)`;
-      
-      if (this.headerPreview) {
-        this.headerPreview.style.background = previewColor;
-        this.headerPreview.setAttribute('data-color', previewColor);
-        this.headerPreview.setAttribute('title', `Click to copy: ${previewColor}`);
-      }
-      if (this.headerSwatch) {
-        this.headerSwatch.style.background = swatchColor;
-        this.headerSwatch.setAttribute('data-color', swatchColor);
-        this.headerSwatch.setAttribute('title', `Click to copy: ${swatchColor}`);
+    function sync() {
+      const theme = load('theme');
+      document.querySelectorAll('[data-theme-choice]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeChoice === theme)));
+      for (const key of ['accent', 'tint']) {
+        sliders[key].value = load(key);
+        labels[key].textContent = load(key) + '°';
       }
     }
-  }
 
-  updateTheme(area, value) {
-    const root = document.documentElement;
-    
-    switch(area) {
-      case 'content':
-        root.style.setProperty('--content-hue', value);
-        break;
-      case 'header':
-        root.style.setProperty('--header-hue', value);
-        break;
-      case 'darkMode':
-        root.style.setProperty('--dark-mode', value ? '1' : '0');
-        break;
-    }
-  }
+    const close = () => { popup.hidden = true; };
+    $('openTheme').addEventListener('click', () => { sync(); popup.hidden = false; });
+    $('closeTheme').addEventListener('click', close);
+    popup.addEventListener('click', e => { if (e.target === popup) close(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !popup.hidden) close(); });
 
-  updateDarkModeButtons(isDark) {
-    if (this.darkModeToggle) {
-      this.darkModeToggle.textContent = isDark ? '☀️ Light Mode' : '🌙 Dark Mode';
-    }
-  }
-
-  copyColorValue(area) {
-    let colorValue = '';
-    let element = null;
-    
-    if (area === 'content' && this.contentSwatch) {
-      colorValue = this.contentSwatch.getAttribute('data-color');
-      element = this.contentSwatch;
-    } else if (area === 'header' && this.headerSwatch) {
-      colorValue = this.headerSwatch.getAttribute('data-color');
-      element = this.headerSwatch;
-    } else if (area === 'content-preview' && this.contentPreview) {
-      colorValue = this.contentPreview.getAttribute('data-color');
-      element = this.contentPreview;
-    } else if (area === 'header-preview' && this.headerPreview) {
-      colorValue = this.headerPreview.getAttribute('data-color');
-      element = this.headerPreview;
-    }
-    
-    if (colorValue && element) {
-      // Copy to clipboard
-      navigator.clipboard.writeText(colorValue).then(() => {
-        // Add visual feedback
-        element.classList.add('copied');
-        setTimeout(() => {
-          element.classList.remove('copied');
-        }, 300);
-        
-        // Show notification if available
-        if (typeof showNotification === 'function') {
-          showNotification(`Copied ${area} color: ${colorValue}`, 'success');
-        }
-      }).catch(err => {
-        console.error('Failed to copy color value:', err);
-        // Fallback for older browsers
-        const textArea = document.createElement('textarea');
-        textArea.value = colorValue;
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-        
-        if (typeof showNotification === 'function') {
-          showNotification(`Copied ${area} color: ${colorValue}`, 'success');
-        }
+    document.querySelectorAll('[data-theme-choice]').forEach(b => b.addEventListener('click', () => {
+      save('theme', b.dataset.themeChoice);
+      apply('theme', b.dataset.themeChoice);
+      sync();
+    }));
+    for (const key of ['accent', 'tint']) {
+      sliders[key].addEventListener('input', () => {
+        save(key, sliders[key].value);
+        apply(key, sliders[key].value);
+        labels[key].textContent = sliders[key].value + '°';
       });
     }
-  }
-
-  // Reset themes to defaults
-  resetToDefaults() {
-    if (typeof showNotification === 'function') {
-      showNotification('Resetting theme to defaults...', 'info');
-    }
-    
-    // Clear localStorage
-    localStorage.removeItem('kiwi-gen-contentHue');
-    localStorage.removeItem('kiwi-gen-headerHue');
-    localStorage.removeItem('kiwi-gen-darkMode');
-    
-    // Reset to default values
-    const defaultContentHue = '100';
-    const defaultHeaderHue = '210';
-    const defaultDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    
-    // Update sliders
-    if (this.contentSlider) {
-      this.contentSlider.value = defaultContentHue;
-      if (this.contentValue) this.contentValue.textContent = defaultContentHue + '°';
-    }
-    if (this.headerSlider) {
-      this.headerSlider.value = defaultHeaderHue;
-      if (this.headerValue) this.headerValue.textContent = defaultHeaderHue + '°';
-    }
-    
-    // Update color previews
-    this.updateColorPreviews('content', defaultContentHue, defaultDarkMode);
-    this.updateColorPreviews('header', defaultHeaderHue, defaultDarkMode);
-    
-    // Update dark mode button
-    this.updateDarkModeButtons(defaultDarkMode);
-    
-    // Apply themes
-    this.updateTheme('content', defaultContentHue);
-    this.updateTheme('header', defaultHeaderHue);
-    this.updateTheme('darkMode', defaultDarkMode);
-    
-    if (typeof showNotification === 'function') {
-      showNotification('Theme reset to defaults!', 'success');
-    }
-  }
-}
-
-// Initialize theme controller when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-  window.themeController = new ThemeController();
-});
+    $('resetTheme').addEventListener('click', () => {
+      for (const key of Object.keys(KEYS)) {
+        save(key, DEFAULTS[key]);
+        apply(key, DEFAULTS[key]);
+      }
+      sync();
+    });
+  });
+})();

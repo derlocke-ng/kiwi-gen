@@ -191,7 +191,7 @@ const Vault = (() => {
     const main = el('div', 'vault-item-main');
     const title = el('div', 'vault-item-title');
     title.append(el('strong', null, item.name), el('span', 'badge', s.label));
-    if (s.hasPrivateKey) title.append(el('span', 'badge', '🔑 private key'));
+    if (s.hasPrivateKey) title.append(el('span', 'badge', 'private key'));
     const badge = expiryBadge(s.expires);
     if (badge) title.append(badge);
     main.append(title, el('div', 'vault-item-desc', s.description || ''));
@@ -280,11 +280,11 @@ const Vault = (() => {
     const value = await Kiwi.caFromItem(item);
     if (item.kind === 'x509') {
       setCA(value);
-      showCA('🗄️ CA from the Vault', 'Stored in the vault', null);
+      showCA('CA from the Vault', 'Stored in the vault', null);
       switchMode('ssl-mode');
     } else {
       setSshCA(value, value);
-      showSshCA('🗄️ SSH CA from the Vault', value, 'Stored in the vault', null);
+      showSshCA('SSH CA from the Vault', value, 'Stored in the vault', null);
       switchMode('sshcert-mode');
     }
     showNotification(`Using "${item.name}" as CA`, 'success');

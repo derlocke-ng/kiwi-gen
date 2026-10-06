@@ -87,7 +87,7 @@ async function generateSSHKey() {
   const spec = $('ssh-type').value;
   const key = await Kiwi.generateSshKey(spec, $('ssh-comment').value.trim(), $('ssh-passphrase').value);
   const filename = 'id_' + spec.split('-')[0];
-  $('ssh-output').replaceChildren(renderOutput('🔐 SSH Key Generated', key.description, [
+  $('ssh-output').replaceChildren(renderOutput('SSH Key Generated', key.description, [
     ['Fingerprint', key.fingerprint],
     ['Passphrase', $('ssh-passphrase').value ? 'Yes (bcrypt KDF, aes256-ctr)' : 'None'],
   ], [
@@ -105,7 +105,7 @@ async function createSshCA() {
   const comment = $('sshca-comment').value.trim();
   const created = await Kiwi.generateSshCA($('sshca-type').value, comment, passphrase);
   setSshCA(created.ca, created);
-  showSshCA('🔏 SSH CA Created', created, passphrase ? 'Yes (bcrypt KDF, aes256-ctr)' : 'None', created.privateKey);
+  showSshCA('SSH CA Created', created, passphrase ? 'Yes (bcrypt KDF, aes256-ctr)' : 'None', created.privateKey);
   const saved = await Vault.store(() => Kiwi.keyItem(created.key, { comment, role: 'ssh-ca', name: comment || 'SSH CA' }));
   showNotification('SSH CA created' + Vault.savedNote(saved), 'success');
 }
@@ -115,7 +115,7 @@ async function uploadSshCA() {
   if (!file) throw new Error('Select the CA private key file.');
   const loaded = await Kiwi.loadSshCA(await file.text(), $('upload-sshca-passphrase').value);
   setSshCA(loaded, loaded);
-  showSshCA('📂 SSH CA Loaded', loaded, 'Loaded from file', null);
+  showSshCA('SSH CA Loaded', loaded, 'Loaded from file', null);
   document.querySelector('#sshcert-mode .upload-section-container').classList.remove('open');
   showNotification('SSH CA loaded', 'success');
 }
@@ -186,7 +186,7 @@ async function createSshCert() {
   if (host) {
     files.push(['known_hosts line for clients', 'known_hosts', `@cert-authority ${cert.principals.join(',')} ${sshCa.publicKey.trim()}\n`]);
   }
-  $('sshcert-output').replaceChildren(renderOutput('📜 SSH Certificate Signed', cert.type, rows, files));
+  $('sshcert-output').replaceChildren(renderOutput('SSH Certificate Signed', cert.type, rows, files));
   const saved = await Vault.store(() => Kiwi.sshCertItem(cert.certificate, cert.keyId));
   showNotification('Certificate signed' + Vault.savedNote(saved), 'success');
 }
@@ -204,7 +204,7 @@ async function createCA() {
   });
   const keyPem = await Kiwi.exportPrivateKey(created.privateKey, passphrase);
   setCA(created);
-  showCA(intermediate ? '🔒 Intermediate CA Created' : '🔒 Root CA Created',
+  showCA(intermediate ? 'Intermediate CA Created' : 'Root CA Created',
     passphrase ? 'Encrypted (AES-256, PBKDF2)' : 'Unencrypted', keyPem);
   const saved = await Vault.store(() => Kiwi.x509Item(created));
   showNotification((intermediate ? 'Intermediate CA created' : 'Root CA created') + Vault.savedNote(saved) +
@@ -217,7 +217,7 @@ async function uploadCA() {
   if (!certFile || !keyFile) throw new Error('Select both the CA certificate and its private key.');
   const [certPem, keyPem] = await Promise.all([certFile.text(), keyFile.text()]);
   setCA(await Kiwi.loadCA(certPem, keyPem, $('upload-ca-passphrase').value));
-  showCA('📂 CA Loaded', 'Loaded from file', null);
+  showCA('CA Loaded', 'Loaded from file', null);
   document.querySelector('#ssl-mode .upload-section-container').classList.remove('open');
   showNotification('CA loaded', 'success');
 }
@@ -302,7 +302,7 @@ async function createCertificate() {
     ['Serial', cert.serial],
   ];
   $('cert-output').replaceChildren(renderOutput(
-    profile === 'client' ? '🔒 Client Certificate Created' : '🔒 Server Certificate Created', cert.keyDescription, rows, files));
+    profile === 'client' ? 'Client Certificate Created' : 'Server Certificate Created', cert.keyDescription, rows, files));
 
   const saved = await Vault.store(() => Kiwi.x509Item({ der: cert.der, privateKey: cert.privateKey, chain: [ca.der, ...ca.chain] }));
   if (cert.notAfter > ca.notAfter) {
@@ -347,12 +347,8 @@ function renderOutput(title, info, details, files) {
   header.append(el('h3', null, title));
   if (info) header.append(el('span', 'output-info', info));
 
-  const detailBox = el('div', 'certificate-details');
-  for (const [label, value] of details) {
-    const row = el('p');
-    row.append(el('strong', null, label + ': '), document.createTextNode(value));
-    detailBox.append(row);
-  }
+  const detailBox = el('dl', 'details');
+  for (const [label, value] of details) detailBox.append(el('dt', null, label), el('dd', null, value));
   group.append(header, detailBox);
 
   for (const [fileTitle, filename, content] of files) {
@@ -361,18 +357,20 @@ function renderOutput(title, info, details, files) {
     const fileHeader = el('div', 'file-header');
     const actions = el('div', 'file-actions');
     if (!binary) {
-      const copy = el('button', 'btn-copy', '📋 Copy');
+      const copy = el('button', 'btn-copy', 'Copy');
       copy.type = 'button';
       copy.addEventListener('click', () => writeClipboard(content).then(
         () => showNotification('Copied to clipboard', 'success'),
         () => showNotification('Copy failed', 'error')));
       actions.append(copy);
     }
-    const download = el('button', 'btn-download', '💾 Download');
+    const download = el('button', 'btn-download', 'Download');
     download.type = 'button';
     download.addEventListener('click', () => downloadFile(filename, content));
     actions.append(download);
-    fileHeader.append(el('strong', null, `${fileTitle} (${filename})`), actions);
+    const name = el('div', 'file-title');
+    name.append(el('strong', null, fileTitle), el('span', 'file-name', filename));
+    fileHeader.append(name, actions);
     file.append(fileHeader);
 
     if (binary) {

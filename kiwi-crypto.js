@@ -1308,7 +1308,7 @@ const Kiwi = (() => {
       blob = spkiToSshBlob(c.spki);
       files.push(['Public key (PEM)', base + '.pub.pem', toPem('PUBLIC KEY', c.spki)]);
     } catch { /* unsupported key type */ }
-    return { title: c.isCA ? '📜 CA Certificate' : '📜 Certificate', info: c.commonName, rows, files, cert: c, blob };
+    return { title: c.isCA ? 'CA Certificate' : 'Certificate', info: c.commonName, rows, files, cert: c, blob };
   }
 
   async function inspectCsr(der) {
@@ -1321,7 +1321,7 @@ const Kiwi = (() => {
     if (r.names.length) rows.push(['Requested names', r.names.map(n => n.value).join(', ')]);
     const base = (r.commonName || 'request').replace(/[^A-Za-z0-9._-]+/g, '_');
     return {
-      title: '📝 Certificate Request', info: r.commonName, rows,
+      title: 'Certificate Request', info: r.commonName, rows,
       files: [['CSR (PEM)', base + '.csr', toPem('CERTIFICATE REQUEST', der)], ['CSR (DER)', base + '.csr.der', der]],
     };
   }
@@ -1329,7 +1329,7 @@ const Kiwi = (() => {
   async function inspectPublicKey(spki) {
     const blob = spkiToSshBlob(spki);
     return {
-      title: '🔑 Public Key', info: describeSpki(spki),
+      title: 'Public Key', info: describeSpki(spki),
       rows: [['Key', describeSpki(spki)], ['SSH fingerprint', await sshFingerprint(blob)]],
       files: [
         ['SSH public key', 'key.pub', sshPublicKeyLine(blob, '')],
@@ -1345,7 +1345,7 @@ const Kiwi = (() => {
     const encryptedInput = block.label === 'ENCRYPTED PRIVATE KEY' ||
       (block.label === 'OPENSSH PRIVATE KEY' && !/^openssh-key-v1\0\0\0\0\x04none/.test(decodeUtf8(block.der.subarray(0, 23))));
     if (encryptedInput && !passphrase) {
-      return { title: '🔐 Private Key', info: format,
+      return { title: 'Private Key', info: format,
         rows: [['Format', format], ['Encrypted', 'Yes. Enter the passphrase to inspect and convert it.']], files: [] };
     }
 
@@ -1370,7 +1370,7 @@ const Kiwi = (() => {
     if (privateKey.algorithm.name === RSA && !outputPassphrase) {
       files.splice(1, 0, ['PKCS#1 private key', 'private-rsa.pem', await exportPkcs1(privateKey)]);
     }
-    return { title: '🔐 Private Key', info: describeSpki(spki), rows, files, privateBlob: blob };
+    return { title: 'Private Key', info: describeSpki(spki), rows, files, privateBlob: blob };
   }
 
   async function inspectSshLine(line) {
@@ -1378,7 +1378,7 @@ const Kiwi = (() => {
     if (name.endsWith(CERT_SUFFIX)) {
       const c = await parseSshCertificate(blob);
       return {
-        title: '📜 SSH Certificate', info: `${c.type} certificate`,
+        title: 'SSH Certificate', info: `${c.type} certificate`,
         rows: [
           ['Key', `${describeSshBlob(c.keyBlob)} ${await sshFingerprint(c.keyBlob)}`],
           ['Key ID', c.keyId || '(none)'],
@@ -1395,7 +1395,7 @@ const Kiwi = (() => {
     }
     const spki = sshBlobToSpki(blob);
     return {
-      title: '🔑 SSH Public Key', info: describeSshBlob(blob),
+      title: 'SSH Public Key', info: describeSshBlob(blob),
       rows: [['Key', describeSshBlob(blob)], ['Fingerprint', await sshFingerprint(blob)], ...(comment ? [['Comment', comment]] : [])],
       files: spki ? [['Public key (PEM)', 'public.pem', toPem('PUBLIC KEY', spki)]] : [],
       blob,
