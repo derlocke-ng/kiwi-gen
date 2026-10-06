@@ -1402,6 +1402,205 @@ const Kiwi = (() => {
     };
   }
 
+  // ---------------------------------------------------------------- vault
+
+  // The vault is JSON encrypted with AES-256-GCM under a PBKDF2-SHA256 key derived from the master password.
+  const VAULT_FORMAT = 'kiwi-vault';
+
+  async function vaultKey(password, salt, iterations) {
+    const base = await subtle.importKey('raw', utf8.encode(password), 'PBKDF2', false, ['deriveKey']);
+    return subtle.deriveKey({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, base,
+      { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+
+  async function createVaultSession(password) {
+    requireWebCrypto();
+    if (password.length < 8) throw new Error('Use a master password of at least 8 characters.');
+    const salt = randomBytes(16);
+    return { key: await vaultKey(password, salt, PBKDF2_ITERATIONS), salt, iterations: PBKDF2_ITERATIONS };
+  }
+
+  async function sealVault(session, data) {
+    const iv = randomBytes(12);
+    const ciphertext = bytes(await subtle.encrypt({ name: 'AES-GCM', iv }, session.key, utf8.encode(JSON.stringify(data))));
+    return JSON.stringify({
+      format: VAULT_FORMAT, version: 1, kdf: 'PBKDF2-SHA256', iterations: session.iterations, salt: toBase64(session.salt),
+      cipher: 'AES-256-GCM', iv: toBase64(iv), data: toBase64(ciphertext),
+    });
+  }
+
+  function isVaultFile(text) {
+    try { return JSON.parse(text).format === VAULT_FORMAT; } catch { return false; }
+  }
+
+  async function openVault(text, password) {
+    requireWebCrypto();
+    let file;
+    try { file = JSON.parse(text); } catch { throw new Error('Not a Kiwi vault file.'); }
+    if (file.format !== VAULT_FORMAT || file.version !== 1 || file.kdf !== 'PBKDF2-SHA256' || file.cipher !== 'AES-256-GCM') {
+      throw new Error('Not a Kiwi vault file, or one from a newer version.');
+    }
+    const salt = fromBase64(file.salt);
+    const session = { key: await vaultKey(password, salt, file.iterations), salt, iterations: file.iterations };
+    let plain;
+    try {
+      plain = await subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(file.iv) }, session.key, fromBase64(file.data));
+    } catch {
+      throw new Error('Wrong master password, or the vault file is damaged.');
+    }
+    return { session, data: JSON.parse(decodeUtf8(bytes(plain))) };
+  }
+
+  // Vault items share { id, kind, name, notes, created } plus, per kind:
+  //   key      - SSH public key line, optional unencrypted OpenSSH private key; role 'ssh-ca' marks SSH CAs
+  //   x509     - certificate PEM, optional PKCS#8 private key and the chain of issuer certificates above it
+  //   ssh-cert - SSH certificate line
+  const newItem = (kind, name, fields) =>
+    ({ id: toHex(randomBytes(16), '').toLowerCase(), kind, name, notes: '', created: new Date().toISOString(), ...fields });
+
+  async function keyItem(privateKey, { name, comment = '', role } = {}) {
+    const { pem, blob } = await encodeOpenSshPrivateKey(privateKey, comment, '');
+    return newItem('key', name || comment || describeSshBlob(blob), {
+      ...(role ? { role } : {}), privateKey: pem, publicKey: sshPublicKeyLine(blob, comment),
+    });
+  }
+
+  async function x509Item({ der, privateKey, chain = [], name }) {
+    return newItem('x509', name || parseCertificate(der).commonName || 'Certificate', {
+      certificate: certificatePem(der),
+      ...(chain.length ? { chain: chain.map(certificatePem).join('') } : {}),
+      ...(privateKey ? { privateKey: await exportPrivateKey(privateKey) } : {}),
+    });
+  }
+
+  const sshCertItem = (line, name) => newItem('ssh-cert', name || 'SSH certificate', { certificate: line.trim() + '\n' });
+
+  // Turns pasted or opened text/bytes into vault items: certificates are paired with their keys
+  // and issuer certificates, the rest become standalone items.
+  async function importItems(input, passphrase) {
+    requireWebCrypto();
+    let text = typeof input === 'string' ? input : decodeUtf8(input);
+    let blocks;
+    if (typeof input !== 'string' && !/-----BEGIN |(^|\s)(ssh|ecdsa|sk)-\S+\s+AAAA/.test(text)) {
+      let isCert = false;
+      try { parseCertificate(input); isCert = true; } catch { /* not a DER certificate */ }
+      blocks = [{ label: isCert ? 'CERTIFICATE' : 'PRIVATE KEY', headers: '', der: input }];
+      text = '';
+    } else {
+      blocks = parsePem(text);
+    }
+
+    const certs = [], keys = [];
+    for (const block of blocks) {
+      if (block.label === 'CERTIFICATE') {
+        certs.push({ der: block.der, info: parseCertificate(block.der) });
+      } else if (/PRIVATE KEY$/.test(block.label)) {
+        const { privateKey, comment } = await privateKeyFromBlock(block, passphrase);
+        keys.push({ privateKey, comment, blob: spkiToSshBlob(await publicSpki(privateKey)) });
+      }
+    }
+
+    const blobOf = cert => { try { return spkiToSshBlob(cert.info.spki); } catch { return null; } };
+    const chainOf = cert => {
+      const chain = [];
+      for (let cur = cert; !cur.info.selfSigned;) {
+        cur = certs.find(c => c !== cert && !chain.includes(c) && equalBytes(c.info.subject, cur.info.issuer));
+        if (!cur) break;
+        chain.push(cur);
+      }
+      return chain;
+    };
+
+    const items = [], usedCerts = new Set(), usedKeys = new Set();
+    for (const cert of certs) {
+      const blob = blobOf(cert);
+      const key = blob && keys.find(k => equalBytes(k.blob, blob));
+      if (!key) continue;
+      const chain = chainOf(cert);
+      chain.forEach(c => usedCerts.add(c));
+      usedCerts.add(cert);
+      usedKeys.add(key);
+      items.push(await x509Item({ der: cert.der, privateKey: key.privateKey, chain: chain.map(c => c.der) }));
+    }
+    for (const cert of certs.filter(c => !usedCerts.has(c))) {
+      items.push(await x509Item({ der: cert.der, chain: chainOf(cert).map(c => c.der) }));
+    }
+    for (const key of keys.filter(k => !usedKeys.has(k))) {
+      items.push(await keyItem(key.privateKey, { comment: key.comment }));
+    }
+    for (const line of text.replace(/\r/g, '').split('\n')) {
+      if (/^\s*#/.test(line) || !SSH_LINE.test(line)) continue;
+      const { name, blob, comment } = parseSshPublicKey(line);
+      if (name.endsWith(CERT_SUFFIX)) {
+        items.push(sshCertItem(sshPublicKeyLine(blob, comment), (await parseSshCertificate(blob)).keyId || comment));
+      } else if (!keys.some(k => equalBytes(k.blob, blob))) {
+        items.push(newItem('key', comment || describeSshBlob(blob), { publicKey: sshPublicKeyLine(blob, comment) }));
+      }
+    }
+    if (!items.length) throw new Error('Nothing to import. Paste PEM certificates or keys, OpenSSH keys or SSH public keys.');
+    return items;
+  }
+
+  // What the vault list shows for an item.
+  async function summarizeItem(item) {
+    if (item.kind === 'x509') {
+      const c = parseCertificate(parsePem(item.certificate)[0].der);
+      const label = c.isCA ? (c.selfSigned ? 'Root CA' : 'Intermediate CA')
+        : c.extUsages.includes('TLS Client') && !c.extUsages.includes('TLS Server') ? 'Client certificate' : 'Certificate';
+      return {
+        label, isCA: c.isCA, hasPrivateKey: !!item.privateKey, expires: c.notAfter,
+        description: [c.keyDescription, c.names.map(n => n.value).join(', ')].filter(Boolean).join(' · '),
+      };
+    }
+    const { blob } = parseSshPublicKey(item.publicKey || item.certificate);
+    if (item.kind === 'ssh-cert') {
+      const c = await parseSshCertificate(blob);
+      return {
+        label: `SSH ${c.type} certificate`, hasPrivateKey: false, expires: c.validBefore,
+        description: `${describeSshBlob(c.keyBlob)} · ${c.principals.join(', ')}`,
+      };
+    }
+    return {
+      label: item.role === 'ssh-ca' ? 'SSH CA' : item.privateKey ? 'Key pair' : 'Public key',
+      isCA: item.role === 'ssh-ca', hasPrivateKey: !!item.privateKey, expires: null,
+      description: `${describeSshBlob(blob)} · ${await sshFingerprint(blob)}`,
+    };
+  }
+
+  // Details and downloadable files for an item; private keys in the files are encrypted with `passphrase` if given.
+  async function itemDetails(item, passphrase = '') {
+    if (item.kind !== 'x509') {
+      const [view] = await inspect(item.privateKey || item.certificate || item.publicKey, { outputPassphrase: passphrase });
+      return { rows: view.rows, files: view.files };
+    }
+    const [view] = await inspect(item.certificate);
+    const files = [...view.files];
+    const leaf = parsePem(item.certificate)[0].der;
+    const chain = item.chain ? parsePem(item.chain).map(b => b.der) : [];
+    const base = files[0][1].replace(/\.pem$/, '');
+    if (chain.length) {
+      files.push(['Issuer chain', base + '.chain.pem', item.chain]);
+      const full = fullChainPem(leaf, { der: chain[0], chain: chain.slice(1) });
+      if (full) files.push(['Full chain (certificate + intermediates)', base + '.fullchain.pem', full]);
+    }
+    if (item.privateKey) {
+      const { privateKey } = await loadPrivateKey(item.privateKey, '');
+      files.unshift([`Private key${passphrase ? ' (encrypted)' : ''}`, base + '.key', await exportPrivateKey(privateKey, passphrase)]);
+      if (passphrase) {
+        files.push(['PKCS#12 bundle (password: the download passphrase)', base + '.p12',
+          await exportPkcs12({ privateKey, certificates: [leaf, ...chain], password: passphrase })]);
+      }
+    }
+    return { rows: view.rows, files };
+  }
+
+  // A vault item as a signing CA for issueCertificate / createSshCertificate.
+  async function caFromItem(item) {
+    if (item.kind === 'x509') return loadCA(item.certificate + (item.chain || ''), item.privateKey, '');
+    const ca = await loadSshCA(item.privateKey, '');
+    return { ...ca, publicKey: item.publicKey };
+  }
+
   // ---------------------------------------------------------------- misc
 
   // 24 characters from a 57-symbol alphabet without look-alikes: ~140 bits.
@@ -1421,6 +1620,8 @@ const Kiwi = (() => {
     generateSshKey, generateSshCA, loadSshCA, createSshCertificate,
     createCA, loadCA, issueCertificate, loadCsr, parseSubjectAltNames, fullChainPem,
     exportPrivateKey, exportPkcs12, certificatePem, inspect, randomPassphrase,
+    createVaultSession, sealVault, openVault, isVaultFile,
+    keyItem, x509Item, sshCertItem, importItems, summarizeItem, itemDetails, caFromItem,
     // exposed for tests
     bcryptPbkdf, loadPrivateKey,
   };

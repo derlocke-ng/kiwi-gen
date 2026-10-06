@@ -1,6 +1,6 @@
 # 🥝 Kiwi Key Generator
 
-> *Kiwi Key Generator is a browser-based tool for generating SSH keys and SSL certificates locally, without sending any data to external servers. It provides a clean, user-friendly interface for cryptographic operations that are typically performed via command line tools.*
+> *Kiwi Key Generator is a browser-based manager for SSH keys, SSH certificates and TLS certificates. Everything is created and stored locally in an encrypted vault, and nothing is sent to any server.*
 
 <div align="center">
 
@@ -16,6 +16,14 @@
 Try the live demo directly in your browser: [Kiwi Key Generator](https://derlocke-ng.github.io/kiwi-gen/)
 
 ## ✨ Features
+
+### Vault
+- Keeps your keys and certificates in one encrypted vault (AES-256-GCM, key derived from your master password with PBKDF2-SHA256, 600,000 iterations)
+- Stored encrypted in this browser's localStorage and decrypted only in memory while unlocked; export it as a file to back it up or move it to another device
+- While unlocked, everything you create in the other tabs is saved automatically
+- Add existing certificates, keys and SSH keys (a certificate with its key and chain becomes one item), or merge another vault file
+- Rename items, add notes, delete, search, and see what expires soon
+- Download any item in the format you need, with an optional passphrase (plus a `.p12` for certificates with keys); use stored CAs to sign new certificates
 
 ### SSH Keys
 - Ed25519, ECDSA (P-256/384/521) and RSA (3072/4096)
@@ -59,6 +67,6 @@ A web page can't act as an SSH agent: browsers have no access to `SSH_AUTH_SOCK`
 
 ## 💻 How It Works
 
-All cryptography uses the browser's built-in [Web Crypto API](https://developer.mozilla.org/docs/Web/API/Web_Crypto_API). The OpenSSH, X.509, PKCS#8, PKCS#10 and PKCS#12 encoding lives in `kiwi-crypto.js` (one file, no dependencies). There is no build step and nothing is loaded from a CDN. A Content-Security-Policy blocks all network requests, so keys can't leave the page.
+All cryptography uses the browser's built-in [Web Crypto API](https://developer.mozilla.org/docs/Web/API/Web_Crypto_API). The OpenSSH, X.509, PKCS#8, PKCS#10 and PKCS#12 encoding lives in `kiwi-crypto.js` (one file, no dependencies). There is no build step and nothing is loaded from a CDN. A Content-Security-Policy blocks all network requests, so keys can't leave the page. The vault is only as safe as your master password and your browser profile: use a strong password, and lock the vault when you're done.
 
 Ed25519 needs a current browser (Chrome 137+, Firefox 129+, Safari 17+).

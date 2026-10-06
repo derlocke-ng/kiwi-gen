@@ -23,10 +23,120 @@
         </div>
 
         <div class="mode-toggle">
+          <button type="button" class="mode-btn" data-mode="vault-mode">🗄️ Vault</button>
           <button type="button" class="mode-btn active" data-mode="ssh-mode">🔐 SSH Keys</button>
           <button type="button" class="mode-btn" data-mode="sshcert-mode">📜 SSH Certificates</button>
           <button type="button" class="mode-btn" data-mode="ssl-mode">🔒 TLS Certificates</button>
           <button type="button" class="mode-btn" data-mode="inspect-mode">🔍 Inspect &amp; Convert</button>
+        </div>
+
+        <!-- Vault -->
+        <div id="vault-mode" class="form-mode">
+          <section class="generator-section" id="vault-locked">
+            <h2>🗄️ Vault</h2>
+            <p class="section-intro">Keep your keys and certificates in an encrypted vault (AES-256-GCM) stored in this browser.
+              While it is unlocked, everything you create in the other tabs is saved to it. Export it to back it up or move it to another device.</p>
+            <div class="form-container">
+              <div id="vault-create">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="vault-new-password">Master password</label>
+                    <input type="password" id="vault-new-password" placeholder="At least 8 characters" autocomplete="new-password">
+                  </div>
+                  <div class="form-group">
+                    <label for="vault-new-password2">Repeat password</label>
+                    <input type="password" id="vault-new-password2" autocomplete="new-password">
+                  </div>
+                </div>
+                <small>There is no way to recover a forgotten password.</small>
+                <button type="button" id="vaultCreate" class="btn-primary">Create Vault</button>
+              </div>
+
+              <div id="vault-unlock" hidden>
+                <div class="form-group">
+                  <label for="vault-password">Master password</label>
+                  <input type="password" id="vault-password" autocomplete="current-password">
+                </div>
+                <button type="button" id="vaultUnlock" class="btn-primary">Unlock</button>
+              </div>
+
+              <div class="upload-section-container">
+                <div class="upload-section-header">
+                  <h3><span class="fold-icon">📂</span> <span id="vault-open-title">Or open a vault file</span></h3>
+                </div>
+                <div class="upload-section-content">
+                  <div class="form-group">
+                    <label for="vault-open-file">Vault file (.kiwi.json)</label>
+                    <input type="file" id="vault-open-file" accept=".json,application/json">
+                  </div>
+                  <div class="form-group">
+                    <label for="vault-open-password">Its master password</label>
+                    <input type="password" id="vault-open-password" autocomplete="off">
+                  </div>
+                  <button type="button" id="vaultOpenFile" class="btn-secondary">Open Vault File</button>
+                  <button type="button" id="vaultForget" class="btn-secondary btn-danger" hidden>Delete the vault stored in this browser</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="generator-section" id="vault-unlocked" hidden>
+            <div class="vault-toolbar">
+              <h2>🗄️ Vault</h2>
+              <div class="file-actions">
+                <button type="button" id="vaultExport" class="btn-download">💾 Export</button>
+                <button type="button" id="vaultLock" class="btn-copy">🔒 Lock</button>
+              </div>
+            </div>
+            <p class="section-intro" id="vault-status"></p>
+            <div class="form-container">
+              <div class="upload-section-container">
+                <div class="upload-section-header">
+                  <h3><span class="fold-icon">➕</span> Add existing keys and certificates</h3>
+                </div>
+                <div class="upload-section-content">
+                  <div class="form-group">
+                    <label for="vault-import-text">Paste PEM, OpenSSH keys, SSH public keys or certificates</label>
+                    <textarea id="vault-import-text" rows="5" spellcheck="false" placeholder="A certificate with its key and chain is stored as one item"></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for="vault-import-file">Or open a file (PEM, DER or another vault file to merge)</label>
+                    <input type="file" id="vault-import-file">
+                  </div>
+                  <div class="form-group">
+                    <label for="vault-import-passphrase">Passphrase (encrypted key or other vault)</label>
+                    <input type="password" id="vault-import-passphrase" autocomplete="off">
+                  </div>
+                  <button type="button" id="vaultImport" class="btn-secondary">Add to Vault</button>
+                </div>
+              </div>
+
+              <div class="upload-section-container">
+                <div class="upload-section-header">
+                  <h3><span class="fold-icon">🔑</span> Change master password</h3>
+                </div>
+                <div class="upload-section-content">
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="vault-change-password">New master password</label>
+                      <input type="password" id="vault-change-password" autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                      <label for="vault-change-password2">Repeat password</label>
+                      <input type="password" id="vault-change-password2" autocomplete="new-password">
+                    </div>
+                  </div>
+                  <button type="button" id="vaultChangePassword" class="btn-secondary">Change Password</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="vault-search">Search</label>
+                <input type="search" id="vault-search" placeholder="Name, type, hostname…" autocomplete="off">
+              </div>
+              <div id="vault-list" class="vault-list"></div>
+            </div>
+          </section>
         </div>
 
         <!-- SSH keys -->
@@ -75,6 +185,11 @@
             <h2>1. SSH Certificate Authority</h2>
             <div class="form-container">
               <div class="ca-status" id="sshCaStatus">No SSH CA loaded</div>
+
+              <div class="form-group vault-picker" hidden>
+                <label for="sshca-vault">Use a key from the vault</label>
+                <select id="sshca-vault"></select>
+              </div>
 
               <div class="form-row">
                 <div class="form-group">
@@ -126,6 +241,7 @@
             <div class="form-container">
               <div class="form-group">
                 <label for="sshcert-pubkey">Public key</label>
+                <select id="sshcert-vault-key" class="vault-picker" hidden></select>
                 <textarea id="sshcert-pubkey" rows="3" spellcheck="false" placeholder="ssh-ed25519 AAAA... user@laptop"></textarea>
               </div>
 
@@ -177,6 +293,11 @@
             <h2>1. Certificate Authority</h2>
             <div class="form-container">
               <div class="ca-status" id="caStatus">No CA loaded</div>
+
+              <div class="form-group vault-picker" hidden>
+                <label for="ca-vault">Use a CA from the vault</label>
+                <select id="ca-vault"></select>
+              </div>
 
               <div class="form-row">
                 <div class="form-group">
@@ -392,6 +513,7 @@
 
   <script src="kiwi-crypto.js"></script>
   <script src="app.js"></script>
+  <script src="vault.js"></script>
   <script src="theme.js"></script>
 </body>
 </html>

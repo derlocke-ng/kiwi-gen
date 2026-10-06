@@ -94,17 +94,20 @@ async function generateSSHKey() {
     ['Private Key', filename, key.privateKey],
     ['Public Key', filename + '.pub', key.publicKey],
   ]));
-  showNotification('SSH key generated', 'success');
+  const saved = await Vault.store(() => Kiwi.keyItem(key.key, { comment: $('ssh-comment').value.trim() }));
+  showNotification('SSH key generated' + Vault.savedNote(saved), 'success');
 }
 
 // ---------------------------------------------------------------- SSH certificates
 
 async function createSshCA() {
   const passphrase = $('sshca-passphrase').value;
-  const created = await Kiwi.generateSshCA($('sshca-type').value, $('sshca-comment').value.trim(), passphrase);
+  const comment = $('sshca-comment').value.trim();
+  const created = await Kiwi.generateSshCA($('sshca-type').value, comment, passphrase);
   setSshCA(created.ca, created);
   showSshCA('🔏 SSH CA Created', created, passphrase ? 'Yes (bcrypt KDF, aes256-ctr)' : 'None', created.privateKey);
-  showNotification('SSH CA created', 'success');
+  const saved = await Vault.store(() => Kiwi.keyItem(created.key, { comment, role: 'ssh-ca', name: comment || 'SSH CA' }));
+  showNotification('SSH CA created' + Vault.savedNote(saved), 'success');
 }
 
 async function uploadSshCA() {
@@ -184,7 +187,8 @@ async function createSshCert() {
     files.push(['known_hosts line for clients', 'known_hosts', `@cert-authority ${cert.principals.join(',')} ${sshCa.publicKey.trim()}\n`]);
   }
   $('sshcert-output').replaceChildren(renderOutput('📜 SSH Certificate Signed', cert.type, rows, files));
-  showNotification('Certificate signed', 'success');
+  const saved = await Vault.store(() => Kiwi.sshCertItem(cert.certificate, cert.keyId));
+  showNotification('Certificate signed' + Vault.savedNote(saved), 'success');
 }
 
 // ---------------------------------------------------------------- TLS
@@ -202,7 +206,9 @@ async function createCA() {
   setCA(created);
   showCA(intermediate ? '🔒 Intermediate CA Created' : '🔒 Root CA Created',
     passphrase ? 'Encrypted (AES-256, PBKDF2)' : 'Unencrypted', keyPem);
-  showNotification(intermediate ? 'Intermediate CA created; it now signs new certificates' : 'Root CA created', 'success');
+  const saved = await Vault.store(() => Kiwi.x509Item(created));
+  showNotification((intermediate ? 'Intermediate CA created' : 'Root CA created') + Vault.savedNote(saved) +
+    (intermediate ? '. It now signs new certificates.' : ''), 'success');
 }
 
 async function uploadCA() {
@@ -298,10 +304,11 @@ async function createCertificate() {
   $('cert-output').replaceChildren(renderOutput(
     profile === 'client' ? '🔒 Client Certificate Created' : '🔒 Server Certificate Created', cert.keyDescription, rows, files));
 
+  const saved = await Vault.store(() => Kiwi.x509Item({ der: cert.der, privateKey: cert.privateKey, chain: [ca.der, ...ca.chain] }));
   if (cert.notAfter > ca.notAfter) {
     showNotification('Note: the certificate outlives its CA and will stop working when the CA expires.', 'info');
   } else {
-    showNotification('Certificate created', 'success');
+    showNotification('Certificate created' + Vault.savedNote(saved), 'success');
   }
 }
 

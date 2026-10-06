@@ -406,7 +406,7 @@ a:hover {
 }
 
 .upload-section-container.open .upload-section-content {
-  max-height: 450px;
+  max-height: 900px;
   padding: 1.25rem;
 }
 
@@ -786,7 +786,7 @@ a:hover {
 /* Mode Toggle Styles */
 .mode-toggle {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 0;
   margin-bottom: 2rem;
   border-radius: 8px;
@@ -827,12 +827,6 @@ a:hover {
   right: 0;
   height: 3px;
   background: var(--header-link-hover);
-}
-
-@media (max-width: 768px) {
-  .mode-toggle {
-    grid-template-columns: 1fr 1fr;
-  }
 }
 
 /* Form Mode Visibility */
@@ -1221,4 +1215,115 @@ a:hover {
 .btn-download:hover {
   background: var(--header-link-hover);
   transform: translateY(-1px);
+}
+
+/* Vault */
+.section-intro {
+  margin: 0 0 1rem;
+  color: var(--content-text);
+  line-height: 1.5;
+}
+
+.vault-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.vault-toolbar h2 {
+  margin: 0;
+}
+
+.vault-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.vault-item {
+  border: 1px solid var(--content-light);
+  border-radius: 8px;
+  background: var(--bg-light);
+  padding: 0.75rem 1rem;
+}
+
+.vault-item.open {
+  border-color: var(--content-medium);
+}
+
+.vault-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.vault-item-main {
+  min-width: 0;
+}
+
+.vault-item-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--content-darker);
+}
+
+.vault-item-desc {
+  margin-top: 0.25rem;
+  color: var(--content-medium);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.vault-item-details {
+  margin-top: 1rem;
+}
+
+.badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid var(--content-light);
+  color: var(--content-dark);
+  white-space: nowrap;
+}
+
+.badge-warn {
+  border-color: hsl(35, 80%, 50%);
+  color: hsl(35, 80%, calc(35% + (var(--dark-mode) * 25%)));
+}
+
+.badge-bad {
+  border-color: hsl(0, 65%, 50%);
+  color: hsl(0, 65%, calc(40% + (var(--dark-mode) * 25%)));
+}
+
+.btn-danger {
+  background: hsl(0, 65%, 50%);
+  color: white;
+  border-color: hsl(0, 65%, 50%);
+}
+
+.btn-danger:hover {
+  background: hsl(0, 65%, 42%);
+}
+
+.vault-picker {
+  margin-bottom: 0.25rem;
+}
+
+@media (max-width: 480px) {
+  .vault-item-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.certificate-details p {
+  overflow-wrap: anywhere;
 }
