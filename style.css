@@ -23,6 +23,10 @@
   --header-link-hover: hsl(var(--header-hue), 60%, calc(70% + (var(--dark-mode) * 15%)));
 }
 
+[hidden] {
+  display: none !important;
+}
+
 /* Global box-sizing reset for better layout control */
 *,
 *::before,
@@ -290,7 +294,8 @@ a:hover {
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
   padding: 0.75rem;
   border: 2px solid var(--content-light);
   border-radius: 8px;
@@ -302,6 +307,18 @@ a:hover {
 
 .passphrase-container input {
   flex: 1;
+}
+
+.form-group textarea {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.binary-note {
+  margin: 0;
+  color: var(--content-medium);
+  font-size: 0.9rem;
 }
 
 .form-group small {
@@ -681,6 +698,7 @@ a:hover {
   .form-row {
     grid-template-columns: 1fr;
   }
+
   
   .ssl-buttons {
     gap: 0.75rem;
@@ -767,7 +785,8 @@ a:hover {
 
 /* Mode Toggle Styles */
 .mode-toggle {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 0;
   margin-bottom: 2rem;
   border-radius: 8px;
@@ -776,8 +795,7 @@ a:hover {
 }
 
 .mode-btn {
-  flex: 1;
-  padding: 0.875rem 1.5rem;
+  padding: 0.875rem 0.75rem;
   border: none;
   background: var(--content-light);
   color: var(--content-text);
@@ -788,13 +806,6 @@ a:hover {
   position: relative;
 }
 
-.mode-btn:first-child {
-  border-radius: 8px 0 0 8px;
-}
-
-.mode-btn:last-child {
-  border-radius: 0 8px 8px 0;
-}
 
 .mode-btn:hover:not(.active) {
   background: var(--content-medium);
@@ -816,6 +827,12 @@ a:hover {
   right: 0;
   height: 3px;
   background: var(--header-link-hover);
+}
+
+@media (max-width: 768px) {
+  .mode-toggle {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 /* Form Mode Visibility */

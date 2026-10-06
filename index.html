@@ -14,7 +14,7 @@
     <main>
       <div class="app-header">
         <h1>🥝 Kiwi Key Generator</h1>
-        <p>Generate SSH keys and TLS certificates locally. Nothing leaves your browser.</p>
+        <p>SSH keys, SSH certificates and TLS certificates, made locally. Nothing leaves your browser.</p>
       </div>
 
       <div class="main-content">
@@ -23,11 +23,13 @@
         </div>
 
         <div class="mode-toggle">
-          <button type="button" id="sshModeBtn" class="mode-btn active">🔐 SSH Keys</button>
-          <button type="button" id="sslModeBtn" class="mode-btn">🔒 SSL/TLS Certificates</button>
+          <button type="button" class="mode-btn active" data-mode="ssh-mode">🔐 SSH Keys</button>
+          <button type="button" class="mode-btn" data-mode="sshcert-mode">📜 SSH Certificates</button>
+          <button type="button" class="mode-btn" data-mode="ssl-mode">🔒 TLS Certificates</button>
+          <button type="button" class="mode-btn" data-mode="inspect-mode">🔍 Inspect &amp; Convert</button>
         </div>
 
-        <!-- SSH -->
+        <!-- SSH keys -->
         <div id="ssh-mode" class="form-mode active">
           <section class="generator-section">
             <div class="form-container">
@@ -67,6 +69,108 @@
           </section>
         </div>
 
+        <!-- SSH certificates -->
+        <div id="sshcert-mode" class="form-mode">
+          <section class="generator-section">
+            <h2>1. SSH Certificate Authority</h2>
+            <div class="form-container">
+              <div class="ca-status" id="sshCaStatus">No SSH CA loaded</div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="sshca-type">Key type</label>
+                  <select id="sshca-type">
+                    <option value="ed25519" selected>Ed25519</option>
+                    <option value="ecdsa-P-256">ECDSA P-256</option>
+                    <option value="ecdsa-P-384">ECDSA P-384</option>
+                    <option value="rsa-4096">RSA 4096</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="sshca-comment">Comment</label>
+                  <input type="text" id="sshca-comment" value="ssh-ca" autocomplete="off">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="sshca-passphrase">CA key passphrase</label>
+                <div class="passphrase-container">
+                  <input type="password" id="sshca-passphrase" placeholder="Leave empty for no passphrase" autocomplete="new-password">
+                  <button type="button" class="btn-secondary" data-passphrase-for="sshca-passphrase">Generate</button>
+                </div>
+              </div>
+
+              <button type="button" id="createSshCA" class="btn-primary">Create SSH CA</button>
+
+              <div class="upload-section-container">
+                <div class="upload-section-header">
+                  <h3><span class="fold-icon">📂</span> Or load an existing CA key</h3>
+                </div>
+                <div class="upload-section-content">
+                  <div class="form-group">
+                    <label for="upload-sshca-key">CA private key (OpenSSH or PEM)</label>
+                    <input type="file" id="upload-sshca-key">
+                  </div>
+                  <div class="form-group">
+                    <label for="upload-sshca-passphrase">Key passphrase (if encrypted)</label>
+                    <input type="password" id="upload-sshca-passphrase" placeholder="Leave empty if unencrypted" autocomplete="off">
+                  </div>
+                  <button type="button" id="uploadSshCA" class="btn-secondary">Load CA</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="generator-section">
+            <h2>2. Sign a Public Key</h2>
+            <div class="form-container">
+              <div class="form-group">
+                <label for="sshcert-pubkey">Public key</label>
+                <textarea id="sshcert-pubkey" rows="3" spellcheck="false" placeholder="ssh-ed25519 AAAA... user@laptop"></textarea>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="sshcert-type">Certificate type</label>
+                  <select id="sshcert-type">
+                    <option value="user" selected>User (log in to servers)</option>
+                    <option value="host">Host (identify a server)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="sshcert-days">Valid for (days)</label>
+                  <input type="number" id="sshcert-days" value="365" min="0" max="36500">
+                  <small>0 means forever.</small>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="sshcert-keyid">Key ID</label>
+                  <input type="text" id="sshcert-keyid" placeholder="e.g., alice@laptop" autocomplete="off">
+                  <small>Shows up in the server's logs.</small>
+                </div>
+                <div class="form-group">
+                  <label for="sshcert-principals" id="sshcert-principals-label">Usernames</label>
+                  <input type="text" id="sshcert-principals" placeholder="e.g., alice root" autocomplete="off">
+                  <small id="sshcert-principals-hint">Accounts this certificate may log in as.</small>
+                </div>
+              </div>
+
+              <button type="button" id="createSshCert" class="btn-primary" disabled>Sign Public Key</button>
+            </div>
+          </section>
+
+          <section class="generator-section">
+            <h2>📋 Generated Files</h2>
+            <div class="output-container">
+              <div id="sshca-output"></div>
+              <div id="sshcert-output"></div>
+              <p class="output-placeholder" id="sshcert-placeholder">Your SSH CA and certificates will appear here...</p>
+            </div>
+          </section>
+        </div>
+
         <!-- TLS -->
         <div id="ssl-mode" class="form-mode">
           <section class="generator-section">
@@ -74,9 +178,18 @@
             <div class="form-container">
               <div class="ca-status" id="caStatus">No CA loaded</div>
 
-              <div class="form-group">
-                <label for="ca-name">CA name</label>
-                <input type="text" id="ca-name" value="Kiwi Local CA" autocomplete="off">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="ca-kind">Create</label>
+                  <select id="ca-kind">
+                    <option value="root" selected>Root CA</option>
+                    <option value="intermediate" disabled>Intermediate CA (signed by the current CA)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ca-name">CA name</label>
+                  <input type="text" id="ca-name" value="Kiwi Local CA" autocomplete="off">
+                </div>
               </div>
 
               <div class="form-row">
@@ -113,6 +226,7 @@
                   <div class="form-group">
                     <label for="upload-ca-cert">CA certificate (.pem, .crt)</label>
                     <input type="file" id="upload-ca-cert" accept=".pem,.crt,.cer">
+                    <small>For an intermediate CA, the file may also contain the rest of its chain.</small>
                   </div>
                   <div class="form-group">
                     <label for="upload-ca-key">CA private key (.key, .pem)</label>
@@ -129,27 +243,57 @@
           </section>
 
           <section class="generator-section">
-            <h2>2. Server Certificate</h2>
+            <h2>2. Issue a Certificate</h2>
             <div class="form-container">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="cert-profile">Certificate for</label>
+                  <select id="cert-profile">
+                    <option value="server" selected>Server (HTTPS, TLS)</option>
+                    <option value="client">Client (TLS client authentication)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="cert-type">Key</label>
+                  <select id="cert-type">
+                    <option value="ecdsa-P-256" selected>New ECDSA P-256 key</option>
+                    <option value="rsa-2048">New RSA 2048 key</option>
+                    <option value="rsa-4096">New RSA 4096 key</option>
+                    <option value="csr">From a CSR (sign a request)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group" id="cert-csr-group" hidden>
+                <label for="cert-csr">Certificate signing request</label>
+                <textarea id="cert-csr" rows="4" spellcheck="false" placeholder="-----BEGIN CERTIFICATE REQUEST-----"></textarea>
+                <small>The subject is copied from the request. Names it requests are filled in below for you to review.</small>
+              </div>
+
+              <div class="form-group" id="cert-cn-group" hidden>
+                <label for="cert-cn">Name</label>
+                <input type="text" id="cert-cn" placeholder="e.g., Alice Example" autocomplete="off">
+              </div>
+
               <div class="form-group">
-                <label for="cert-names">Hostnames and IP addresses</label>
+                <label for="cert-names" id="cert-names-label">Hostnames and IP addresses</label>
                 <input type="text" id="cert-names" placeholder="e.g., example.com *.example.com 192.168.1.10" autocomplete="off">
-                <small>Separate with spaces or commas. The first entry becomes the common name.</small>
+                <small id="cert-names-hint">Separate with spaces or commas. The first entry becomes the common name.</small>
               </div>
 
               <div class="form-row">
                 <div class="form-group">
-                  <label for="cert-type">Key type</label>
-                  <select id="cert-type">
-                    <option value="ecdsa-P-256" selected>ECDSA P-256</option>
-                    <option value="rsa-2048">RSA 2048</option>
-                    <option value="rsa-4096">RSA 4096</option>
-                  </select>
-                </div>
-                <div class="form-group">
                   <label for="cert-days">Valid for (days)</label>
                   <input type="number" id="cert-days" value="825" min="1" max="36500">
                   <small>Apple devices reject server certificates valid for more than 825 days.</small>
+                </div>
+                <div class="form-group" id="cert-p12-group">
+                  <label for="cert-p12">.p12 password</label>
+                  <div class="passphrase-container">
+                    <input type="password" id="cert-p12" placeholder="Leave empty to skip .p12" autocomplete="new-password">
+                    <button type="button" class="btn-secondary" data-passphrase-for="cert-p12">Generate</button>
+                  </div>
+                  <small>For importing into Windows, macOS, browsers or Java.</small>
                 </div>
               </div>
 
@@ -163,6 +307,39 @@
               <div id="ca-output"></div>
               <div id="cert-output"></div>
               <p class="output-placeholder" id="ssl-placeholder">Your CA and certificates will appear here...</p>
+            </div>
+          </section>
+        </div>
+
+        <!-- Inspect & convert -->
+        <div id="inspect-mode" class="form-mode">
+          <section class="generator-section">
+            <div class="form-container">
+              <div class="form-group">
+                <label for="inspect-input">Certificate, key, CSR or SSH key</label>
+                <textarea id="inspect-input" rows="6" spellcheck="false" placeholder="Paste PEM, OpenSSH or SSH public keys (an authorized_keys file works too)"></textarea>
+              </div>
+              <div class="form-group">
+                <label for="inspect-file">Or open a file (PEM or DER)</label>
+                <input type="file" id="inspect-file">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="inspect-passphrase">Passphrase of the input</label>
+                  <input type="password" id="inspect-passphrase" placeholder="If the key is encrypted" autocomplete="off">
+                </div>
+                <div class="form-group">
+                  <label for="inspect-out-passphrase">Passphrase for converted keys</label>
+                  <input type="password" id="inspect-out-passphrase" placeholder="Leave empty for unencrypted" autocomplete="new-password">
+                </div>
+              </div>
+              <button type="button" id="inspectBtn" class="btn-primary">Inspect</button>
+            </div>
+          </section>
+          <section class="generator-section">
+            <h2>📋 Details &amp; Conversions</h2>
+            <div id="inspect-output" class="output-container">
+              <p class="output-placeholder">Details and converted formats will appear here...</p>
             </div>
           </section>
         </div>

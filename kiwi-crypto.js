@@ -1,10 +1,11 @@
-// Kiwi crypto core: OpenSSH keys, X.509 certificates and PKCS#8 on top of WebCrypto.
+// Kiwi crypto core: OpenSSH keys and certificates, X.509, PKCS#8/#10/#12 on top of WebCrypto.
 // No DOM access in here, so it can be exercised outside the browser.
 const Kiwi = (() => {
   'use strict';
 
   const subtle = globalThis.crypto && globalThis.crypto.subtle;
   const utf8 = new TextEncoder();
+  const decodeUtf8 = b => new TextDecoder().decode(b);
 
   // ---------------------------------------------------------------- bytes
 
@@ -26,7 +27,9 @@ const Kiwi = (() => {
   }
 
   const fromBase64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const toBase64Url = b => toBase64(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const fromBase64Url = s => fromBase64(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
+  const toHex = (b, sep = ':') => Array.from(b, x => x.toString(16).padStart(2, '0').toUpperCase()).join(sep);
 
   function equalBytes(a, b) {
     return a.length === b.length && a.every((v, i) => v === b[i]);
@@ -36,6 +39,17 @@ const Kiwi = (() => {
     let i = 0;
     while (i < b.length - 1 && b[i] === 0) i++;
     return b.subarray(i);
+  }
+
+  function leftPad(b, size) {
+    b = stripLeadingZeros(b);
+    return b.length >= size ? b : concat(new Uint8Array(size - b.length), b);
+  }
+
+  const toBigInt = b => b.length ? BigInt('0x' + toHex(b, '')) : 0n;
+  function fromBigInt(n) {
+    const h = n.toString(16);
+    return Uint8Array.from((h.length % 2 ? '0' + h : h).match(/../g), x => parseInt(x, 16));
   }
 
   // ---------------------------------------------------------------- PEM
@@ -115,6 +129,7 @@ const Kiwi = (() => {
 
   // Parses one TLV at `off`; returns { tag, content, raw, end }.
   function parseDer(der, off = 0) {
+    if (off + 2 > der.length) throw new Error('Truncated DER');
     const tag = der[off];
     let len = der[off + 1], start = off + 2;
     if (len & 0x80) {
@@ -139,6 +154,13 @@ const Kiwi = (() => {
     return out;
   }
 
+  // Parses a whole DER document, rejecting trailing garbage.
+  function parseDocument(der) {
+    const node = parseDer(der);
+    if (node.end !== der.length || node.tag !== 0x30) throw new Error('Not a DER structure');
+    return node;
+  }
+
   function oidToString(node) {
     const b = node.content, arcs = [Math.floor(b[0] / 40), b[0] % 40];
     for (let i = 1, v = 0; i < b.length; i++) {
@@ -148,17 +170,30 @@ const Kiwi = (() => {
     return arcs.join('.');
   }
 
+  const intValue = node => node.content.reduce((n, b) => n * 256 + b, 0);
+
   function parseTime(node) {
-    let s = new TextDecoder().decode(node.content);
+    let s = decodeUtf8(node.content);
     if (node.tag === 0x17) s = (Number(s.slice(0, 2)) < 50 ? '20' : '19') + s;
     return new Date(Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12), +s.slice(12, 14)));
   }
 
-  // ---------------------------------------------------------------- key types
+  function decodeString(node) {
+    if (node.tag !== 0x1e) return decodeUtf8(node.content); // BMPString is UTF-16BE
+    let s = '';
+    for (let i = 0; i + 1 < node.content.length; i += 2) s += String.fromCharCode((node.content[i] << 8) | node.content[i + 1]);
+    return s;
+  }
+
+  // ---------------------------------------------------------------- algorithms
 
   const OID = {
     rsaEncryption: '1.2.840.113549.1.1.1',
+    sha1WithRSA: '1.2.840.113549.1.1.5',
+    rsassaPss: '1.2.840.113549.1.1.10',
     sha256WithRSA: '1.2.840.113549.1.1.11',
+    sha384WithRSA: '1.2.840.113549.1.1.12',
+    sha512WithRSA: '1.2.840.113549.1.1.13',
     ecPublicKey: '1.2.840.10045.2.1',
     ecdsaSha256: '1.2.840.10045.4.3.2',
     ecdsaSha384: '1.2.840.10045.4.3.3',
@@ -173,6 +208,14 @@ const Kiwi = (() => {
     authorityKeyId: '2.5.29.35',
     extKeyUsage: '2.5.29.37',
     serverAuth: '1.3.6.1.5.5.7.3.1',
+    clientAuth: '1.3.6.1.5.5.7.3.2',
+    extensionRequest: '1.2.840.113549.1.9.14',
+    localKeyId: '1.2.840.113549.1.9.21',
+    x509Certificate: '1.2.840.113549.1.9.22.1',
+    data: '1.2.840.113549.1.7.1',
+    shroudedKeyBag: '1.2.840.113549.1.12.10.1.2',
+    certBag: '1.2.840.113549.1.12.10.1.3',
+    sha256: '2.16.840.1.101.3.4.2.1',
     pbes2: '1.2.840.113549.1.5.13',
     pbkdf2: '1.2.840.113549.1.5.12',
     hmacSha1: '1.2.840.113549.2.7',
@@ -185,9 +228,23 @@ const Kiwi = (() => {
   };
 
   const CURVES = {
-    'P-256': { oid: '1.2.840.10045.3.1.7', ssh: 'nistp256', hash: 'SHA-256', sigOid: OID.ecdsaSha256 },
-    'P-384': { oid: '1.3.132.0.34', ssh: 'nistp384', hash: 'SHA-384', sigOid: OID.ecdsaSha384 },
-    'P-521': { oid: '1.3.132.0.35', ssh: 'nistp521', hash: 'SHA-512', sigOid: OID.ecdsaSha512 },
+    'P-256': { oid: '1.2.840.10045.3.1.7', ssh: 'nistp256', size: 32, hash: 'SHA-256', sigOid: OID.ecdsaSha256 },
+    'P-384': { oid: '1.3.132.0.34', ssh: 'nistp384', size: 48, hash: 'SHA-384', sigOid: OID.ecdsaSha384 },
+    'P-521': { oid: '1.3.132.0.35', ssh: 'nistp521', size: 66, hash: 'SHA-512', sigOid: OID.ecdsaSha512 },
+  };
+  const curveBySsh = name => Object.keys(CURVES).find(c => CURVES[c].ssh === name);
+
+  const RSA = 'RSASSA-PKCS1-v1_5';
+  const SIGNATURES = {
+    [OID.sha1WithRSA]: { label: 'SHA1 with RSA', key: RSA, hash: 'SHA-1' },
+    [OID.sha256WithRSA]: { label: 'SHA256 with RSA', key: RSA, hash: 'SHA-256' },
+    [OID.sha384WithRSA]: { label: 'SHA384 with RSA', key: RSA, hash: 'SHA-384' },
+    [OID.sha512WithRSA]: { label: 'SHA512 with RSA', key: RSA, hash: 'SHA-512' },
+    [OID.rsassaPss]: { label: 'RSA-PSS' },
+    [OID.ecdsaSha256]: { label: 'ECDSA with SHA256', key: 'ECDSA', hash: 'SHA-256' },
+    [OID.ecdsaSha384]: { label: 'ECDSA with SHA384', key: 'ECDSA', hash: 'SHA-384' },
+    [OID.ecdsaSha512]: { label: 'ECDSA with SHA512', key: 'ECDSA', hash: 'SHA-512' },
+    [OID.ed25519]: { label: 'Ed25519', key: 'Ed25519' },
   };
 
   // Key spec strings used by the UI: "ed25519", "ecdsa-P-256", "rsa-4096", ...
@@ -195,20 +252,17 @@ const Kiwi = (() => {
     if (spec === 'ed25519') return { name: 'Ed25519' };
     if (spec.startsWith('ecdsa-')) return { name: 'ECDSA', namedCurve: spec.slice(6) };
     if (spec.startsWith('rsa-')) {
-      return { name: 'RSASSA-PKCS1-v1_5', modulusLength: Number(spec.slice(4)),
-        publicExponent: Uint8Array.of(1, 0, 1), hash: 'SHA-256' };
+      return { name: RSA, modulusLength: Number(spec.slice(4)), publicExponent: Uint8Array.of(1, 0, 1), hash: 'SHA-256' };
     }
     throw new Error(`Unknown key type ${spec}`);
   }
 
-  function describeKey(algorithm) {
-    if (algorithm.name === 'Ed25519') return 'Ed25519';
-    if (algorithm.name === 'ECDSA') return `ECDSA ${algorithm.namedCurve}`;
-    return `RSA ${algorithm.modulusLength}`;
+  function requireWebCrypto() {
+    if (!subtle) throw new Error('WebCrypto is unavailable. Open this page via https://, localhost or file://.');
   }
 
   async function generateKey(spec) {
-    if (!subtle) throw new Error('WebCrypto is unavailable. Open this page via https://, localhost or file://.');
+    requireWebCrypto();
     try {
       return await subtle.generateKey(webCryptoAlgorithm(spec), true, ['sign', 'verify']);
     } catch (e) {
@@ -217,9 +271,79 @@ const Kiwi = (() => {
     }
   }
 
-  // ---------------------------------------------------------------- OpenSSH
+  // WebCrypto algorithm for an AlgorithmIdentifier from a PKCS#8 or SPKI structure.
+  function algorithmFromAlgId(algId) {
+    const [id, params] = children(algId);
+    switch (oidToString(id)) {
+      case OID.rsaEncryption: return { name: RSA, hash: 'SHA-256' };
+      case OID.ed25519: return { name: 'Ed25519' };
+      case OID.ecPublicKey: {
+        const curveOid = params && params.tag === 0x06 && oidToString(params);
+        const curve = Object.keys(CURVES).find(c => CURVES[c].oid === curveOid);
+        if (curve) return { name: 'ECDSA', namedCurve: curve };
+        throw new Error('Unsupported EC curve.');
+      }
+      default: throw new Error('Unsupported key algorithm.');
+    }
+  }
+
+  function describeSpki(spki) {
+    const [algId, keyBits] = children(parseDer(spki));
+    const alg = algorithmFromAlgId(algId);
+    if (alg.name === 'Ed25519') return 'Ed25519';
+    if (alg.name === 'ECDSA') return `ECDSA ${alg.namedCurve}`;
+    const modulus = children(parseDer(keyBits.content.subarray(1)))[0].content;
+    return `RSA ${toBigInt(modulus).toString(2).length}`;
+  }
+
+  function importPrivateJwk(jwk, hash = 'SHA-256') {
+    const { alg, key_ops, ext, ...clean } = jwk;
+    const algorithm = clean.kty === 'OKP' ? { name: 'Ed25519' }
+      : clean.kty === 'EC' ? { name: 'ECDSA', namedCurve: clean.crv } : { name: RSA, hash };
+    return subtle.importKey('jwk', clean, algorithm, true, ['sign']);
+  }
+
+  // SubjectPublicKeyInfo for a private CryptoKey.
+  async function publicSpki(privateKey) {
+    const { d, p, q, dp, dq, qi, alg, key_ops, ext, ...pub } = await subtle.exportKey('jwk', privateKey);
+    const key = await subtle.importKey('jwk', pub, privateKey.algorithm, true, ['verify']);
+    return bytes(await subtle.exportKey('spki', key));
+  }
+
+  // DER ECDSA signature -> r||s as WebCrypto expects.
+  function derToP1363(der, size) {
+    const [r, s] = children(parseDer(der));
+    return concat(leftPad(r.content, size), leftPad(s.content, size));
+  }
+
+  // Verifies an X.509-style signature; null when the algorithm can't be checked here.
+  async function verifySignature(spki, sigOid, data, signature) {
+    const s = SIGNATURES[sigOid];
+    if (!s || !s.key) return null;
+    try {
+      const keyAlg = algorithmFromAlgId(children(parseDer(spki))[0]);
+      if (keyAlg.name !== s.key) return false;
+      let importAlg = keyAlg, verifyAlg = { name: s.key };
+      if (s.key === RSA) importAlg = { name: RSA, hash: s.hash };
+      if (s.key === 'ECDSA') {
+        verifyAlg = { name: 'ECDSA', hash: s.hash };
+        signature = derToP1363(signature, CURVES[keyAlg.namedCurve].size);
+      }
+      const key = await subtle.importKey('spki', spki, importAlg, false, ['verify']);
+      return await subtle.verify(verifyAlg, key, signature, data);
+    } catch {
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------- SSH wire format
 
   const u32 = n => Uint8Array.of(n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255);
+  function u64(n) {
+    const b = new Uint8Array(8);
+    new DataView(b.buffer).setBigUint64(0, BigInt(n));
+    return b;
+  }
   const sshString = data => {
     const b = typeof data === 'string' ? utf8.encode(data) : data;
     return concat(u32(b.length), b);
@@ -230,34 +354,116 @@ const Kiwi = (() => {
     return sshString(b[0] & 0x80 ? concat(Uint8Array.of(0), b) : b);
   };
 
-  // Public key blob and the private-key fields of the openssh-key-v1 format (PROTOCOL.key).
-  async function sshKeyParts(keyPair) {
-    const jwk = await subtle.exportKey('jwk', keyPair.privateKey);
-    const alg = keyPair.privateKey.algorithm;
+  function sshReader(buf) {
+    let off = 0;
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const need = n => { if (off + n > buf.length) throw new Error('Truncated SSH data'); };
+    const r = {
+      u32() { need(4); off += 4; return view.getUint32(off - 4); },
+      u64() { need(8); off += 8; return view.getBigUint64(off - 8); },
+      string() { const n = r.u32(); need(n); off += n; return buf.subarray(off - n, off); },
+      text() { return decodeUtf8(r.string()); },
+      get offset() { return off; },
+      get done() { return off >= buf.length; },
+    };
+    return r;
+  }
+
+  // Number of key fields after the type name in a public key blob.
+  const SSH_KEY_FIELDS = {
+    'ssh-ed25519': 1, 'ssh-rsa': 2,
+    'ecdsa-sha2-nistp256': 2, 'ecdsa-sha2-nistp384': 2, 'ecdsa-sha2-nistp521': 2,
+    'sk-ssh-ed25519@openssh.com': 2, 'sk-ecdsa-sha2-nistp256@openssh.com': 3,
+  };
+  const CERT_SUFFIX = '-cert-v01@openssh.com';
+  const certTypeName = name => name.replace(/@openssh\.com$/, '') + CERT_SUFFIX;
+  const certBaseName = name => {
+    const base = name.slice(0, -CERT_SUFFIX.length);
+    return base.startsWith('sk-') ? base + '@openssh.com' : base;
+  };
+
+  function spkiToSshBlob(spki) {
+    const [algId, bits] = children(parseDer(spki));
+    const alg = algorithmFromAlgId(algId);
+    const key = bits.content.subarray(1);
+    if (alg.name === 'Ed25519') return concat(sshString('ssh-ed25519'), sshString(key));
+    if (alg.name === 'ECDSA') {
+      const c = CURVES[alg.namedCurve].ssh;
+      return concat(sshString(`ecdsa-sha2-${c}`), sshString(c), sshString(key));
+    }
+    const [n, e] = children(parseDer(key));
+    return concat(sshString('ssh-rsa'), mpint(e.content), mpint(n.content));
+  }
+
+  // SubjectPublicKeyInfo for an SSH public key blob, or null for types X.509 can't express.
+  function sshBlobToSpki(blob) {
+    const r = sshReader(blob);
+    const name = r.text();
+    if (name === 'ssh-ed25519') return seq(seq(oid(OID.ed25519)), bitString(r.string()));
+    if (name === 'ssh-rsa') {
+      const e = r.string(), n = r.string();
+      return seq(seq(oid(OID.rsaEncryption), derNull()), bitString(seq(integer(n), integer(e))));
+    }
+    if (name.startsWith('ecdsa-sha2-')) {
+      const curve = curveBySsh(r.text());
+      if (!curve) return null;
+      return seq(seq(oid(OID.ecPublicKey), oid(CURVES[curve].oid)), bitString(r.string()));
+    }
+    return null;
+  }
+
+  function describeSshBlob(blob) {
+    const name = sshReader(blob).text();
+    if (name === 'sk-ssh-ed25519@openssh.com') return 'Ed25519 security key';
+    if (name === 'sk-ecdsa-sha2-nistp256@openssh.com') return 'ECDSA P-256 security key';
+    const spki = sshBlobToSpki(blob);
+    return spki ? describeSpki(spki) : name;
+  }
+
+  async function sshFingerprint(blob) {
+    return 'SHA256:' + toBase64(bytes(await subtle.digest('SHA-256', blob))).replace(/=+$/, '');
+  }
+
+  const SSH_LINE = /(?:^|\s)((?:sk-)?(?:ssh|ecdsa)-[\w@.-]+)\s+(AAAA[A-Za-z0-9+/]+={0,3})(?:[ \t]+([^\n]*))?/;
+
+  function parseSshPublicKey(line) {
+    const m = SSH_LINE.exec(line.trim());
+    if (!m) throw new Error('Not an SSH public key. Expected something like "ssh-ed25519 AAAA... comment".');
+    const blob = fromBase64(m[2]);
+    const name = sshReader(blob).text();
+    if (name !== m[1]) throw new Error('SSH public key type does not match its contents.');
+    return { name, blob, comment: (m[3] || '').trim() };
+  }
+
+  const sshPublicKeyLine = (blob, comment) =>
+    `${sshReader(blob).text()} ${toBase64(blob)}${comment ? ' ' + comment : ''}\n`;
+
+  // ---------------------------------------------------------------- OpenSSH private keys
+
+  // Public key blob and private-key fields of the openssh-key-v1 format (PROTOCOL.key).
+  async function sshKeyParts(privateKey) {
+    const jwk = await subtle.exportKey('jwk', privateKey);
+    const alg = privateKey.algorithm;
     if (alg.name === 'Ed25519') {
       const pub = fromBase64Url(jwk.x), seed = fromBase64Url(jwk.d);
       const blob = concat(sshString('ssh-ed25519'), sshString(pub));
-      return { name: 'ssh-ed25519', blob, priv: concat(blob, sshString(concat(seed, pub))) };
+      return { blob, priv: concat(blob, sshString(concat(seed, pub))) };
     }
     if (alg.name === 'ECDSA') {
-      const curve = CURVES[alg.namedCurve].ssh, name = `ecdsa-sha2-${curve}`;
+      const curve = CURVES[alg.namedCurve].ssh;
       const point = concat(Uint8Array.of(4), fromBase64Url(jwk.x), fromBase64Url(jwk.y));
-      const blob = concat(sshString(name), sshString(curve), sshString(point));
-      return { name, blob, priv: concat(blob, mpint(fromBase64Url(jwk.d))) };
+      const blob = concat(sshString(`ecdsa-sha2-${curve}`), sshString(curve), sshString(point));
+      return { blob, priv: concat(blob, mpint(fromBase64Url(jwk.d))) };
     }
     const [n, e, d, p, q, qi] = ['n', 'e', 'd', 'p', 'q', 'qi'].map(k => fromBase64Url(jwk[k]));
     return {
-      name: 'ssh-rsa',
       blob: concat(sshString('ssh-rsa'), mpint(e), mpint(n)),
       priv: concat(sshString('ssh-rsa'), mpint(n), mpint(e), mpint(d), mpint(qi), mpint(p), mpint(q)),
     };
   }
 
-  async function generateSshKey(spec, comment, passphrase) {
-    const keyPair = await generateKey(spec);
-    const { name, blob, priv } = await sshKeyParts(keyPair);
-    const digest = bytes(await subtle.digest('SHA-256', blob));
-
+  async function encodeOpenSshPrivateKey(privateKey, comment, passphrase) {
+    const { blob, priv } = await sshKeyParts(privateKey);
     const check = randomBytes(4);
     let section = concat(check, check, priv, sshString(comment));
     const blockSize = passphrase ? 16 : 8;
@@ -279,15 +485,69 @@ const Kiwi = (() => {
 
     const file = concat(utf8.encode('openssh-key-v1\0'), sshString(cipher), sshString(kdf), sshString(kdfOptions),
       u32(1), sshString(blob), sshString(section));
+    return { pem: toPem('OPENSSH PRIVATE KEY', file, 70), blob };
+  }
+
+  async function decodeOpenSshPrivateKey(der, passphrase) {
+    if (decodeUtf8(der.subarray(0, 15)) !== 'openssh-key-v1\0') throw new Error('Not an OpenSSH private key.');
+    const r = sshReader(der.subarray(15));
+    const cipher = r.text(), kdf = r.text(), kdfOptions = r.string();
+    if (r.u32() !== 1) throw new Error('OpenSSH key files holding several keys are not supported.');
+    r.string(); // public key blob, repeated in the private section
+    let section = r.string();
+    const encrypted = cipher !== 'none';
+    if (encrypted) {
+      const keyLen = { 'aes128-ctr': 16, 'aes192-ctr': 24, 'aes256-ctr': 32 }[cipher];
+      if (!keyLen || kdf !== 'bcrypt') throw new Error(`Unsupported OpenSSH key encryption: ${cipher}`);
+      if (!passphrase) throw new Error('The private key is encrypted. Enter its passphrase.');
+      const o = sshReader(kdfOptions);
+      const salt = o.string(), rounds = o.u32();
+      const km = await bcryptPbkdf(utf8.encode(passphrase), salt, rounds, keyLen + 16);
+      const aesKey = await subtle.importKey('raw', km.subarray(0, keyLen), 'AES-CTR', false, ['decrypt']);
+      section = bytes(await subtle.decrypt({ name: 'AES-CTR', counter: km.subarray(keyLen), length: 128 }, aesKey, section));
+    }
+
+    const p = sshReader(section);
+    if (p.u32() !== p.u32()) throw new Error(encrypted ? 'Wrong passphrase for the private key.' : 'Corrupt OpenSSH private key.');
+    const type = p.text();
+    let jwk;
+    if (type === 'ssh-ed25519') {
+      const pub = p.string(), both = p.string();
+      jwk = { kty: 'OKP', crv: 'Ed25519', x: toBase64Url(pub), d: toBase64Url(both.subarray(0, 32)) };
+    } else if (type.startsWith('ecdsa-sha2-')) {
+      const curve = curveBySsh(p.text());
+      if (!curve) throw new Error(`Unsupported OpenSSH key type: ${type}`);
+      const size = CURVES[curve].size, point = p.string(), d = p.string();
+      jwk = { kty: 'EC', crv: curve, x: toBase64Url(point.subarray(1, 1 + size)),
+        y: toBase64Url(point.subarray(1 + size)), d: toBase64Url(leftPad(d, size)) };
+    } else if (type === 'ssh-rsa') {
+      const [n, e, d, qi, pp, q] = Array.from({ length: 6 }, () => stripLeadingZeros(p.string()));
+      const D = toBigInt(d);
+      const dp = fromBigInt(D % (toBigInt(pp) - 1n)), dq = fromBigInt(D % (toBigInt(q) - 1n));
+      jwk = { kty: 'RSA', ...Object.fromEntries(Object.entries({ n, e, d, p: pp, q, dp, dq, qi })
+        .map(([k, v]) => [k, toBase64Url(v)])) };
+    } else {
+      throw new Error(`Unsupported OpenSSH key type: ${type}`);
+    }
+    return { privateKey: await importPrivateJwk(jwk), comment: p.text(), encrypted };
+  }
+
+  async function generateSshKey(spec, comment, passphrase) {
+    const { privateKey } = await generateKey(spec);
+    const { pem, blob } = await encodeOpenSshPrivateKey(privateKey, comment, passphrase);
     return {
-      description: describeKey(keyPair.privateKey.algorithm),
-      privateKey: toPem('OPENSSH PRIVATE KEY', file, 70),
-      publicKey: `${name} ${toBase64(blob)}${comment ? ' ' + comment : ''}\n`,
-      fingerprint: 'SHA256:' + toBase64(digest).replace(/=+$/, ''),
+      key: privateKey,
+      blob,
+      description: describeSshBlob(blob),
+      privateKey: pem,
+      publicKey: sshPublicKeyLine(blob, comment),
+      fingerprint: await sshFingerprint(blob),
     };
   }
 
-  // bcrypt_pbkdf as used by OpenSSH (openbsd-compat/bcrypt_pbkdf.c).
+  // ---------------------------------------------------------------- bcrypt_pbkdf
+
+  // As used by OpenSSH (openbsd-compat/bcrypt_pbkdf.c).
   let blowfishInit;
   function blowfishInitialState() {
     if (!blowfishInit) {
@@ -394,6 +654,119 @@ const Kiwi = (() => {
     return key;
   }
 
+  // ---------------------------------------------------------------- SSH certificates (PROTOCOL.certkeys)
+
+  // ssh-keygen's default extensions for user certificates, in the required sorted order.
+  const USER_CERT_EXTENSIONS = ['permit-X11-forwarding', 'permit-agent-forwarding', 'permit-port-forwarding',
+    'permit-pty', 'permit-user-rc'];
+  const FOREVER = 0xffffffffffffffffn;
+
+  async function sshSign(privateKey, data) {
+    const alg = privateKey.algorithm;
+    if (alg.name === 'Ed25519') {
+      return concat(sshString('ssh-ed25519'), sshString(bytes(await subtle.sign('Ed25519', privateKey, data))));
+    }
+    if (alg.name === 'ECDSA') {
+      const c = CURVES[alg.namedCurve];
+      const sig = bytes(await subtle.sign({ name: 'ECDSA', hash: c.hash }, privateKey, data));
+      const half = sig.length / 2;
+      return concat(sshString(`ecdsa-sha2-${c.ssh}`),
+        sshString(concat(mpint(sig.subarray(0, half)), mpint(sig.subarray(half)))));
+    }
+    // RSA keys are bound to one hash in WebCrypto; rsa-sha2-512 needs a SHA-512 one.
+    const key = await importPrivateJwk(await subtle.exportKey('jwk', privateKey), 'SHA-512');
+    return concat(sshString('rsa-sha2-512'), sshString(bytes(await subtle.sign(RSA, key, data))));
+  }
+
+  async function sshVerify(keyBlob, data, sigBlob) {
+    try {
+      const r = sshReader(sigBlob);
+      const sigType = r.text();
+      let sig = r.string();
+      const spki = sshBlobToSpki(keyBlob);
+      const keyAlg = algorithmFromAlgId(children(parseDer(spki))[0]);
+      let importAlg = keyAlg, verifyAlg = { name: keyAlg.name };
+      if (keyAlg.name === 'ECDSA') {
+        const c = CURVES[keyAlg.namedCurve], s = sshReader(sig);
+        sig = concat(leftPad(s.string(), c.size), leftPad(s.string(), c.size));
+        verifyAlg = { name: 'ECDSA', hash: c.hash };
+      }
+      if (keyAlg.name === RSA) {
+        const hash = { 'rsa-sha2-512': 'SHA-512', 'rsa-sha2-256': 'SHA-256', 'ssh-rsa': 'SHA-1' }[sigType];
+        importAlg = { name: RSA, hash };
+      }
+      const key = await subtle.importKey('spki', spki, importAlg, false, ['verify']);
+      return await subtle.verify(verifyAlg, key, sig, data);
+    } catch {
+      return false;
+    }
+  }
+
+  async function createSshCertificate(ca, { publicKey, certType, keyId, principals, days }) {
+    const { name, blob, comment } = parseSshPublicKey(publicKey);
+    if (name.endsWith(CERT_SUFFIX)) throw new Error('That is already a certificate. Paste the plain public key.');
+    if (!SSH_KEY_FIELDS[name]) throw new Error(`Unsupported key type: ${name}`);
+
+    const keyFields = blob.subarray(4 + utf8.encode(name).length);
+    const now = Math.floor(Date.now() / 1000);
+    const validAfter = BigInt(now - 300); // allow 5 minutes of clock skew
+    const validBefore = days ? BigInt(now + days * 86400) : FOREVER;
+    const serial = new DataView(randomBytes(8).buffer).getBigUint64(0);
+    const extensions = certType === 'user'
+      ? USER_CERT_EXTENSIONS.map(e => concat(sshString(e), sshString(new Uint8Array(0)))) : [];
+    const empty = sshString(new Uint8Array(0));
+
+    const body = concat(sshString(certTypeName(name)), sshString(randomBytes(32)), keyFields, u64(serial),
+      u32(certType === 'user' ? 1 : 2), sshString(keyId), sshString(concat(...principals.map(sshString))),
+      u64(validAfter), u64(validBefore), empty, sshString(concat(...extensions)), empty, sshString(ca.blob));
+    const cert = concat(body, sshString(await sshSign(ca.privateKey, body)));
+    return { certificate: sshPublicKeyLine(cert, comment), ...(await parseSshCertificate(cert)) };
+  }
+
+  async function parseSshCertificate(cert) {
+    const r = sshReader(cert);
+    const name = r.text();
+    r.string(); // nonce
+    const baseName = certBaseName(name);
+    const fields = Array.from({ length: SSH_KEY_FIELDS[baseName] || 0 }, () => r.string());
+    if (!fields.length) throw new Error(`Unsupported certificate type: ${name}`);
+    const keyBlob = concat(sshString(baseName), ...fields.map(sshString));
+    const serial = r.u64(), type = r.u32() === 1 ? 'user' : 'host', keyId = r.text();
+    const principals = [];
+    for (const pr = sshReader(r.string()); !pr.done;) principals.push(pr.text());
+    const validAfter = r.u64(), validBefore = r.u64();
+    const options = buf => {
+      const out = [];
+      for (const o = sshReader(buf); !o.done;) {
+        const key = o.text(), value = o.string();
+        out.push(value.length ? `${key} ${sshReader(value).text()}` : key);
+      }
+      return out;
+    };
+    const criticalOptions = options(r.string()), extensions = options(r.string());
+    r.string(); // reserved
+    const caBlob = r.string();
+    const signed = cert.subarray(0, r.offset);
+    const signatureValid = await sshVerify(caBlob, signed, r.string());
+    const date = v => v === FOREVER ? null : new Date(Number(v) * 1000);
+    return {
+      type, keyId, serial: serial.toString(), principals, criticalOptions, extensions,
+      validAfter: date(validAfter), validBefore: date(validBefore), keyBlob, caBlob, signatureValid,
+    };
+  }
+
+  async function generateSshCA(spec, comment, passphrase) {
+    const key = await generateSshKey(spec, comment, passphrase);
+    return { ...key, ca: { privateKey: key.key, blob: key.blob } };
+  }
+
+  async function loadSshCA(keyText, passphrase) {
+    const { privateKey } = await loadPrivateKey(keyText, passphrase);
+    const blob = spkiToSshBlob(await publicSpki(privateKey));
+    return { privateKey, blob, publicKey: sshPublicKeyLine(blob, ''), fingerprint: await sshFingerprint(blob),
+      description: describeSshBlob(blob) };
+  }
+
   // ---------------------------------------------------------------- PKCS#8
 
   const PBKDF2_ITERATIONS = 600000;
@@ -405,17 +778,21 @@ const Kiwi = (() => {
     return subtle.deriveKey({ name: 'PBKDF2', salt, iterations, hash }, base, { name: 'AES-CBC', length: bits }, false, [usage]);
   }
 
-  // Unencrypted "PRIVATE KEY", or PBES2/PBKDF2-SHA256/AES-256-CBC "ENCRYPTED PRIVATE KEY" when a passphrase is given.
-  async function exportPrivateKey(privateKey, passphrase) {
-    const pkcs8 = bytes(await subtle.exportKey('pkcs8', privateKey));
-    if (!passphrase) return toPem('PRIVATE KEY', pkcs8);
+  // EncryptedPrivateKeyInfo with PBES2: PBKDF2-HMAC-SHA256 and AES-256-CBC.
+  async function encryptPkcs8(pkcs8, passphrase) {
     const salt = randomBytes(16), iv = randomBytes(16);
     const aes = await pbkdf2Key(passphrase, salt, PBKDF2_ITERATIONS, 'SHA-256', 256, 'encrypt');
     const data = bytes(await subtle.encrypt({ name: 'AES-CBC', iv }, aes, pkcs8));
     const algId = seq(oid(OID.pbes2), seq(
       seq(oid(OID.pbkdf2), seq(octets(salt), smallInt(PBKDF2_ITERATIONS), seq(oid(OID.hmacSha256), derNull()))),
       seq(oid(OID.aes256Cbc), octets(iv))));
-    return toPem('ENCRYPTED PRIVATE KEY', seq(algId, octets(data)));
+    return seq(algId, octets(data));
+  }
+
+  // Unencrypted "PRIVATE KEY", or "ENCRYPTED PRIVATE KEY" when a passphrase is given.
+  async function exportPrivateKey(privateKey, passphrase) {
+    const pkcs8 = bytes(await subtle.exportKey('pkcs8', privateKey));
+    return passphrase ? toPem('ENCRYPTED PRIVATE KEY', await encryptPkcs8(pkcs8, passphrase)) : toPem('PRIVATE KEY', pkcs8);
   }
 
   async function decryptPkcs8(der, passphrase) {
@@ -427,14 +804,12 @@ const Kiwi = (() => {
     const [kdfOid, kdfParams] = children(kdf);
     if (oidToString(kdfOid) !== OID.pbkdf2) throw new Error('Unsupported key derivation (only PBKDF2 is supported).');
     const kp = children(kdfParams);
-    const salt = kp[0].content;
-    const iterations = kp[1].content.reduce((n, b) => n * 256 + b, 0);
     const prf = kp.find((n, i) => i >= 2 && n.tag === 0x30);
     const hash = PRF_HASH[prf ? oidToString(children(prf)[0]) : OID.hmacSha1];
     const [cipherOid, iv] = children(encScheme);
     const bits = AES_BITS[oidToString(cipherOid)];
     if (!hash || !bits) throw new Error('Unsupported key encryption parameters.');
-    const aes = await pbkdf2Key(passphrase, salt, iterations, hash, bits, 'decrypt');
+    const aes = await pbkdf2Key(passphrase, kp[0].content, intValue(kp[1]), hash, bits, 'decrypt');
     try {
       return bytes(await subtle.decrypt({ name: 'AES-CBC', iv: iv.content }, aes, data.content));
     } catch {
@@ -442,14 +817,23 @@ const Kiwi = (() => {
     }
   }
 
-  // Accepts PKCS#8 (plain or encrypted), PKCS#1 RSA and SEC1 EC keys in PEM form.
-  async function importPrivateKey(pemText, passphrase) {
-    const block = parsePem(pemText).find(b => /PRIVATE KEY$/.test(b.label));
-    if (!block) throw new Error('No PEM private key found in the key file.');
+  const KEY_FORMATS = {
+    'PRIVATE KEY': 'PKCS#8',
+    'ENCRYPTED PRIVATE KEY': 'PKCS#8 (encrypted)',
+    'RSA PRIVATE KEY': 'PKCS#1',
+    'EC PRIVATE KEY': 'SEC1',
+    'OPENSSH PRIVATE KEY': 'OpenSSH',
+  };
+
+  // Accepts PKCS#8 (plain or encrypted), PKCS#1 RSA, SEC1 EC and OpenSSH keys.
+  async function privateKeyFromBlock(block, passphrase) {
+    requireWebCrypto();
     if (/ENCRYPTED/.test(block.headers)) {
       throw new Error('Legacy encrypted PEM keys are not supported. Convert it first: ' +
         'openssl pkey -in old.key -out new.key -aes256');
     }
+    const format = KEY_FORMATS[block.label];
+    if (block.label === 'OPENSSH PRIVATE KEY') return { format, ...(await decodeOpenSshPrivateKey(block.der, passphrase)) };
 
     let pkcs8;
     switch (block.label) {
@@ -466,25 +850,62 @@ const Kiwi = (() => {
       }
       default: throw new Error(`Unsupported key format: ${block.label}`);
     }
+    return { format, encrypted: block.label === 'ENCRYPTED PRIVATE KEY', comment: '', privateKey: await importPkcs8(pkcs8) };
+  }
 
+  function importPkcs8(pkcs8) {
     const algorithm = algorithmFromAlgId(children(parseDer(pkcs8))[1]);
     return subtle.importKey('pkcs8', pkcs8, algorithm, true, ['sign']);
   }
 
-  // WebCrypto signing algorithm for an AlgorithmIdentifier from a PKCS#8 or SPKI structure.
-  function algorithmFromAlgId(algId) {
-    const [id, params] = children(algId);
-    switch (oidToString(id)) {
-      case OID.rsaEncryption: return { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
-      case OID.ed25519: return { name: 'Ed25519' };
-      case OID.ecPublicKey: {
-        const curveOid = params && oidToString(params);
-        const curve = Object.keys(CURVES).find(c => CURVES[c].oid === curveOid);
-        if (curve) return { name: 'ECDSA', namedCurve: curve };
-        throw new Error('Unsupported EC curve.');
-      }
-      default: throw new Error('Unsupported key algorithm.');
+  async function loadPrivateKey(text, passphrase) {
+    const block = parsePem(text).find(b => /PRIVATE KEY$/.test(b.label));
+    if (!block) throw new Error('No private key found in the key file.');
+    return privateKeyFromBlock(block, passphrase);
+  }
+
+  // PKCS#1 RSAPrivateKey, the "traditional" format some older software insists on.
+  async function exportPkcs1(privateKey) {
+    const pkcs8 = bytes(await subtle.exportKey('pkcs8', privateKey));
+    return toPem('RSA PRIVATE KEY', children(parseDer(pkcs8))[2].content);
+  }
+
+  // ---------------------------------------------------------------- PKCS#12
+
+  // RFC 7292 appendix B key derivation, for the MAC key (id 3) only: one SHA-256 block.
+  async function pkcs12MacKey(password, salt, iterations) {
+    const v = 64;
+    const pw = new Uint8Array(password.length * 2 + 2);
+    for (let i = 0; i < password.length; i++) {
+      pw[2 * i] = password.charCodeAt(i) >> 8;
+      pw[2 * i + 1] = password.charCodeAt(i) & 0xff;
     }
+    const fill = b => {
+      const out = new Uint8Array(v * Math.ceil(b.length / v));
+      for (let i = 0; i < out.length; i++) out[i] = b[i % b.length];
+      return out;
+    };
+    let a = concat(new Uint8Array(v).fill(3), fill(salt), fill(pw));
+    for (let i = 0; i < iterations; i++) a = bytes(await subtle.digest('SHA-256', a));
+    return a;
+  }
+
+  // .p12/.pfx with the key (PBES2, AES-256) and certificates, MAC'd with HMAC-SHA256 like OpenSSL 3.
+  async function exportPkcs12({ privateKey, certificates, password }) {
+    if (!password) throw new Error('A .p12 file needs a password.');
+    const localKeyId = seq(oid(OID.localKeyId), set(octets(bytes(await subtle.digest('SHA-1', certificates[0])))));
+    const pkcs8 = bytes(await subtle.exportKey('pkcs8', privateKey));
+    const certBag = (der, i) => seq(oid(OID.certBag), explicit(0, seq(oid(OID.x509Certificate), explicit(0, octets(der)))),
+      ...(i === 0 ? [set(localKeyId)] : []));
+    const keyBag = seq(oid(OID.shroudedKeyBag), explicit(0, await encryptPkcs8(pkcs8, password)), set(localKeyId));
+    const authSafe = seq(seq(oid(OID.data), explicit(0, octets(seq(...certificates.map(certBag), keyBag)))));
+
+    const salt = randomBytes(16), iterations = 2048;
+    const macKey = await subtle.importKey('raw', await pkcs12MacKey(password, salt, iterations),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const mac = bytes(await subtle.sign('HMAC', macKey, authSafe));
+    return seq(smallInt(3), seq(oid(OID.data), explicit(0, octets(authSafe))),
+      seq(seq(seq(oid(OID.sha256), derNull()), octets(mac)), octets(salt), smallInt(iterations)));
   }
 
   // ---------------------------------------------------------------- X.509
@@ -496,7 +917,7 @@ const Kiwi = (() => {
       const c = CURVES[alg.namedCurve];
       return { id: seq(oid(c.sigOid)), params: { name: 'ECDSA', hash: c.hash }, ecdsa: true };
     }
-    return { id: seq(oid(OID.sha256WithRSA), derNull()), params: { name: 'RSASSA-PKCS1-v1_5' } };
+    return { id: seq(oid(OID.sha256WithRSA), derNull()), params: { name: RSA } };
   }
 
   // RFC 5280 key identifier: SHA-1 of the subjectPublicKey bits.
@@ -521,6 +942,12 @@ const Kiwi = (() => {
     return tlv(0x03, Uint8Array.of(unused, v));
   }
   const KU = { digitalSignature: 0, keyEncipherment: 2, keyCertSign: 5, cRLSign: 6 };
+  const KEY_USAGE_NAMES = ['Digital Signature', 'Non Repudiation', 'Key Encipherment', 'Data Encipherment',
+    'Key Agreement', 'Certificate Sign', 'CRL Sign', 'Encipher Only', 'Decipher Only'];
+  const EKU_NAMES = {
+    [OID.serverAuth]: 'TLS Server', [OID.clientAuth]: 'TLS Client', '1.3.6.1.5.5.7.3.3': 'Code Signing',
+    '1.3.6.1.5.5.7.3.4': 'Email', '1.3.6.1.5.5.7.3.8': 'Time Stamping', '1.3.6.1.5.5.7.3.9': 'OCSP Signing',
+  };
 
   function serialNumber() {
     const s = randomBytes(16);
@@ -542,30 +969,36 @@ const Kiwi = (() => {
   }
 
   const addDays = (date, days) => new Date(date.getTime() + days * 86400000);
+  const authorityKeyId = async ca =>
+    extension(OID.authorityKeyId, false, seq(tlv(0x80, ca.keyId || await keyIdentifier(ca.spki))));
 
-  async function createCA({ keySpec, commonName, organization, days }) {
+  // A self-signed root, or an intermediate when `issuer` (a loaded CA) is given.
+  async function createCA({ keySpec, commonName, organization, days, issuer }) {
+    if (issuer && issuer.pathLen === 0) {
+      throw new Error(`"${issuer.commonName}" may not issue intermediate CAs (its path length is 0).`);
+    }
     const keyPair = await generateKey(keySpec);
     const spki = bytes(await subtle.exportKey('spki', keyPair.publicKey));
-    const keyId = await keyIdentifier(spki);
     const name = distinguishedName(commonName, organization);
     const now = new Date();
     const der = await signCertificate({
-      subject: name, issuer: name, spki, signer: keyPair.privateKey,
+      subject: name, issuer: issuer ? issuer.subject : name, spki,
+      signer: issuer ? issuer.privateKey : keyPair.privateKey,
       notBefore: now, notAfter: addDays(now, days),
       extensions: [
-        extension(OID.basicConstraints, true, seq(boolTrue(), smallInt(0))),
+        // Roots may sign intermediates; intermediates only sign end-entity certificates.
+        extension(OID.basicConstraints, true, issuer ? seq(boolTrue(), smallInt(0)) : seq(boolTrue())),
         extension(OID.keyUsage, true, keyUsage(KU.digitalSignature, KU.keyCertSign, KU.cRLSign)),
-        extension(OID.subjectKeyId, false, octets(keyId)),
+        extension(OID.subjectKeyId, false, octets(await keyIdentifier(spki))),
+        ...(issuer ? [await authorityKeyId(issuer)] : []),
       ],
     });
-    return { privateKey: keyPair.privateKey, der, ...certificateInfo(der) };
+    return { privateKey: keyPair.privateKey, der, chain: issuer ? [issuer.der, ...issuer.chain] : [], ...parseCertificate(der) };
   }
 
-  // Split "example.com, *.example.com 10.0.0.1 ::1" into SAN entries.
+  // Split "example.com, *.example.com 10.0.0.1 ::1 me@example.com" into SAN entries.
   function parseSubjectAltNames(input) {
-    const names = input.split(/[\s,]+/).filter(Boolean);
-    if (!names.length) throw new Error('Enter at least one hostname or IP address.');
-    return names.map(raw => {
+    return input.split(/[\s,]+/).filter(Boolean).map(raw => {
       const name = raw.replace(/^\[(.*)\]$/, '$1');
       const v4 = name.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
       if (v4) {
@@ -577,6 +1010,10 @@ const Kiwi = (() => {
         const v6 = parseIPv6(name);
         if (v6) return { type: 'ip', value: name, bytes: v6 };
         throw new Error(`Invalid IPv6 address: ${raw}`);
+      }
+      if (name.includes('@')) {
+        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(name)) return { type: 'email', value: name };
+        throw new Error(`Invalid email address: ${raw}`);
       }
       const dns = name.toLowerCase().replace(/\.$/, '');
       const label = '[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?';
@@ -601,86 +1038,368 @@ const Kiwi = (() => {
     return out;
   }
 
-  async function createServerCertificate(ca, { keySpec, names, days }) {
-    const keyPair = await generateKey(keySpec);
-    const spki = bytes(await subtle.exportKey('spki', keyPair.publicKey));
-    const san = seq(...names.map(n => n.type === 'dns' ? tlv(0x82, utf8.encode(n.value)) : tlv(0x87, n.bytes)));
-    const usage = keyPair.privateKey.algorithm.name === 'RSASSA-PKCS1-v1_5'
-      ? keyUsage(KU.digitalSignature, KU.keyEncipherment) : keyUsage(KU.digitalSignature);
+  function ipToString(b) {
+    if (b.length === 4) return b.join('.');
+    const groups = [];
+    for (let i = 0; i < 16; i += 2) groups.push(((b[i] << 8) | b[i + 1]).toString(16));
+    return groups.join(':').replace(/(^|:)0(:0)+(:|$)/, '::').replace(/:{3,}/, '::');
+  }
+
+  const SAN_TAGS = { dns: 0x82, email: 0x81, ip: 0x87 };
+  const encodeSan = names => seq(...names.map(n => tlv(SAN_TAGS[n.type], n.type === 'ip' ? n.bytes : utf8.encode(n.value))));
+
+  function parseGeneralNames(node) {
+    return children(node).map(n => {
+      switch (n.tag) {
+        case 0x82: return { type: 'dns', value: decodeUtf8(n.content) };
+        case 0x81: return { type: 'email', value: decodeUtf8(n.content) };
+        case 0x86: return { type: 'uri', value: decodeUtf8(n.content) };
+        case 0x87: return { type: 'ip', value: ipToString(n.content) };
+        case 0xa4: return { type: 'dirName', value: nameToString(children(n)[0]) };
+        default: return { type: 'other', value: '(unsupported name type)' };
+      }
+    });
+  }
+
+  // Server or client certificate signed by `ca`, for a new key or for the key in a CSR.
+  async function issueCertificate(ca, { profile, keySpec, csr, names, commonName, days }) {
+    let privateKey = null, spki, subject;
+    if (csr) {
+      ({ spki, subject } = csr);
+    } else {
+      const keyPair = await generateKey(keySpec);
+      privateKey = keyPair.privateKey;
+      spki = bytes(await subtle.exportKey('spki', keyPair.publicKey));
+    }
+    commonName = commonName || (names[0] && names[0].value);
+    if (!subject && !commonName) throw new Error('Enter a common name or at least one hostname.');
+    if (profile === 'server' && !names.length) throw new Error('Enter at least one hostname or IP address.');
+
+    const rsa = oidToString(children(children(parseDer(spki))[0])[0]) === OID.rsaEncryption;
+    const usage = rsa && profile === 'server' ? keyUsage(KU.digitalSignature, KU.keyEncipherment) : keyUsage(KU.digitalSignature);
     const now = new Date();
     const der = await signCertificate({
-      subject: distinguishedName(names[0].value), issuer: ca.subject, spki, signer: ca.privateKey,
+      subject: subject || distinguishedName(commonName), issuer: ca.subject, spki, signer: ca.privateKey,
       notBefore: now, notAfter: addDays(now, days),
       extensions: [
         extension(OID.basicConstraints, true, seq()),
         extension(OID.keyUsage, true, usage),
-        extension(OID.extKeyUsage, false, seq(oid(OID.serverAuth))),
-        extension(OID.subjectAltName, false, san),
+        extension(OID.extKeyUsage, false, seq(oid(profile === 'client' ? OID.clientAuth : OID.serverAuth))),
+        ...(names.length ? [extension(OID.subjectAltName, false, encodeSan(names))] : []),
         extension(OID.subjectKeyId, false, octets(await keyIdentifier(spki))),
-        extension(OID.authorityKeyId, false, seq(tlv(0x80, ca.keyId || await keyIdentifier(ca.spki)))),
+        await authorityKeyId(ca),
       ],
     });
-    return { privateKey: keyPair.privateKey, der, ...certificateInfo(der) };
+    return { privateKey, der, ...parseCertificate(der) };
   }
 
-  // The fields of a certificate this tool cares about.
-  function certificateInfo(der) {
-    const [tbs] = children(parseDer(der));
+  const DN_NAMES = {
+    '2.5.4.3': 'CN', '2.5.4.5': 'serialNumber', '2.5.4.6': 'C', '2.5.4.7': 'L', '2.5.4.8': 'ST', '2.5.4.9': 'street',
+    '2.5.4.10': 'O', '2.5.4.11': 'OU', '1.2.840.113549.1.9.1': 'emailAddress', '0.9.2342.19200300.100.1.25': 'DC',
+  };
+
+  function nameAttributes(name) {
+    const out = [];
+    for (const rdn of children(name)) {
+      for (const atv of children(rdn)) {
+        const [type, value] = children(atv);
+        const id = oidToString(type);
+        out.push({ id, key: DN_NAMES[id] || id, value: decodeString(value) });
+      }
+    }
+    return out;
+  }
+
+  const nameToString = name => nameAttributes(name).map(a => `${a.key}=${a.value}`).join(', ') || '(empty)';
+  const commonNameOf = name => (nameAttributes(name).find(a => a.id === OID.commonName) || {}).value || '';
+
+  function parseCertificate(der) {
+    const [tbs, sigAlg, sigBits] = children(parseDocument(der));
     const f = children(tbs);
     const i = f[0].tag === 0xa0 ? 1 : 0;
-    const [serial, , , validity, subject, spki] = f.slice(i);
+    const [serial, , issuer, validity, subject, spki] = f.slice(i);
     const [notBefore, notAfter] = children(validity).map(parseTime);
 
-    let isCA = false, keyId = null;
+    let isCA = false, pathLen = null, keyId = null, authorityKeyId = null, names = [], usages = [], extUsages = [];
     const exts = f.find(n => n.tag === 0xa3);
     for (const ext of exts ? children(children(exts)[0]) : []) {
       const parts = children(ext);
       const id = oidToString(parts[0]);
       const value = parseDer(parts[parts.length - 1].content);
-      if (id === OID.basicConstraints) isCA = children(value).some(n => n.tag === 0x01 && n.content[0]);
-      if (id === OID.subjectKeyId) keyId = value.content;
-    }
-
-    let commonName = '';
-    for (const rdn of children(subject)) {
-      for (const atv of children(rdn)) {
-        const [type, value] = children(atv);
-        if (oidToString(type) === OID.commonName) commonName = new TextDecoder().decode(value.content);
+      if (id === OID.basicConstraints) {
+        const bc = children(value);
+        isCA = bc.some(n => n.tag === 0x01 && n.content[0]);
+        const pl = bc.find(n => n.tag === 0x02);
+        if (isCA && pl) pathLen = intValue(pl);
       }
+      if (id === OID.subjectKeyId) keyId = value.content;
+      if (id === OID.authorityKeyId) authorityKeyId = (children(value).find(n => n.tag === 0x80) || {}).content || null;
+      if (id === OID.subjectAltName) names = parseGeneralNames(value);
+      if (id === OID.keyUsage) {
+        const b = value.content;
+        usages = KEY_USAGE_NAMES.filter((_, bit) => b[1 + (bit >> 3)] & (0x80 >> (bit & 7)));
+      }
+      if (id === OID.extKeyUsage) extUsages = children(value).map(n => EKU_NAMES[oidToString(n)] || oidToString(n));
     }
 
+    const sigOid = oidToString(children(sigAlg)[0]);
+    let keyDescription;
+    try { keyDescription = describeSpki(spki.raw); } catch { keyDescription = 'Unsupported key type'; }
     return {
-      subject: subject.raw, spki: spki.raw, keyId, isCA, commonName, notBefore, notAfter,
-      serial: Array.from(serial.content, b => b.toString(16).padStart(2, '0')).join(':'),
-      keyDescription: describeSpki(spki.raw),
+      subject: subject.raw, issuer: issuer.raw, spki: spki.raw, keyId, authorityKeyId, isCA, pathLen, names,
+      usages, extUsages, notBefore, notAfter, keyDescription,
+      commonName: commonNameOf(subject), subjectText: nameToString(subject), issuerText: nameToString(issuer),
+      selfSigned: equalBytes(subject.raw, issuer.raw),
+      serial: toHex(stripLeadingZeros(serial.content)),
+      sigOid, signatureName: (SIGNATURES[sigOid] || {}).label || sigOid,
+      tbs: tbs.raw, signature: sigBits.content.subarray(1),
     };
   }
 
-  function describeSpki(spki) {
-    const [algId, keyBits] = children(parseDer(spki));
-    const alg = algorithmFromAlgId(algId);
-    if (alg.name !== 'RSASSA-PKCS1-v1_5') return describeKey(alg);
-    const modulus = children(parseDer(keyBits.content.subarray(1)))[0].content;
-    return `RSA ${stripLeadingZeros(modulus).length * 8}`;
+  async function parseCsr(der) {
+    const [info, sigAlg, sigBits] = children(parseDocument(der));
+    const f = children(info);
+    const [, subject, spki] = f;
+    let names = [];
+    const attrs = f.find(n => n.tag === 0xa0);
+    for (const attr of attrs ? children(attrs) : []) {
+      const [type, values] = children(attr);
+      if (oidToString(type) !== OID.extensionRequest) continue;
+      for (const ext of children(children(values)[0])) {
+        const parts = children(ext);
+        if (oidToString(parts[0]) === OID.subjectAltName) names = parseGeneralNames(parseDer(parts[parts.length - 1].content));
+      }
+    }
+    const sigOid = oidToString(children(sigAlg)[0]);
+    return {
+      subject: subject.raw, spki: spki.raw, names,
+      commonName: commonNameOf(subject), subjectText: nameToString(subject),
+      keyDescription: describeSpki(spki.raw), signatureName: (SIGNATURES[sigOid] || {}).label || sigOid,
+      signatureValid: await verifySignature(spki.raw, sigOid, info.raw, sigBits.content.subarray(1)),
+    };
   }
 
-  async function loadCA(certPem, keyPem, passphrase) {
-    const certBlock = parsePem(certPem).find(b => b.label === 'CERTIFICATE');
-    if (!certBlock) throw new Error('No PEM certificate found in the certificate file.');
-    const info = certificateInfo(certBlock.der);
+  async function loadCsr(text) {
+    const block = parsePem(text).find(b => /CERTIFICATE REQUEST$/.test(b.label));
+    if (!block) throw new Error('No PEM certificate request (CSR) found.');
+    const csr = await parseCsr(block.der);
+    if (!csr.signatureValid) throw new Error('The CSR signature is invalid or uses an unsupported algorithm.');
+    return csr;
+  }
+
+  // The first certificate is the CA; any further ones form its chain.
+  async function loadCA(certText, keyText, passphrase) {
+    const certs = parsePem(certText).filter(b => b.label === 'CERTIFICATE');
+    if (!certs.length) throw new Error('No PEM certificate found in the certificate file.');
+    const info = parseCertificate(certs[0].der);
     if (!info.isCA) throw new Error('This certificate is not a CA certificate (basicConstraints CA:FALSE).');
 
-    const privateKey = await importPrivateKey(keyPem, passphrase);
-    const certAlg = algorithmFromAlgId(children(parseDer(info.spki))[0]);
-    if (certAlg.name !== privateKey.algorithm.name || certAlg.namedCurve !== privateKey.algorithm.namedCurve) {
+    const { privateKey } = await loadPrivateKey(keyText, passphrase);
+    if (!equalBytes(spkiToSshBlob(await publicSpki(privateKey)), spkiToSshBlob(info.spki))) {
       throw new Error('The private key does not belong to this certificate.');
     }
-    const publicKey = await subtle.importKey('spki', info.spki, certAlg, true, ['verify']);
-    const [pub, priv] = await Promise.all([publicKey, privateKey].map(k => subtle.exportKey('jwk', k)));
-    if (['n', 'x', 'y'].some(k => pub[k] !== priv[k])) {
-      throw new Error('The private key does not belong to this certificate.');
+    return { privateKey, der: certs[0].der, chain: certs.slice(1).map(c => c.der), ...info };
+  }
+
+  // Leaf plus intermediates, as servers should send it. Null when the CA is a root.
+  function fullChainPem(leafDer, ca) {
+    const intermediates = [ca.der, ...ca.chain].filter(der => !parseCertificate(der).selfSigned);
+    return intermediates.length ? [leafDer, ...intermediates].map(certificatePem).join('') : null;
+  }
+
+  const certificatePem = der => toPem('CERTIFICATE', der);
+
+  // ---------------------------------------------------------------- inspect & convert
+
+  const fmtDate = d => d ? d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : 'forever';
+  const sha256Hex = async b => toHex(bytes(await subtle.digest('SHA-256', b)));
+
+  // Describes whatever is pasted or dropped. Returns items of { title, info, rows, files }.
+  // Files are [title, filename, content] where content is a string or bytes.
+  async function inspect(input, { passphrase = '', outputPassphrase = '' } = {}) {
+    requireWebCrypto();
+    const items = [];
+    const add = async (fn, fallbackTitle) => {
+      try { items.push(await fn()); } catch (e) { items.push({ title: fallbackTitle, info: 'Error', rows: [['Error', e.message]], files: [] }); }
+    };
+
+    let text = typeof input === 'string' ? input : null;
+    if (!text) {
+      const asText = decodeUtf8(input);
+      if (/-----BEGIN |(^|\s)(ssh|ecdsa|sk)-\S+\s+AAAA/.test(asText)) text = asText;
+      else await add(() => inspectDer(input, passphrase, outputPassphrase), 'Binary file');
     }
-    return { privateKey, der: certBlock.der, ...info };
+    if (text) {
+      for (const block of parsePem(text)) await add(() => inspectPem(block, passphrase, outputPassphrase), block.label);
+      for (const line of text.replace(/\r/g, '').split('\n')) {
+        if (!/^\s*#/.test(line) && SSH_LINE.test(line)) await add(() => inspectSshLine(line), 'SSH key');
+      }
+      const compact = text.replace(/\s+/g, '');
+      if (!items.length && compact.length > 64 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact)) {
+        await add(() => inspectDer(fromBase64(compact), passphrase, outputPassphrase), 'Base64 data');
+      }
+    }
+    if (!items.length) {
+      throw new Error('Nothing recognised. Paste a PEM certificate, key or CSR, an OpenSSH key or an SSH public key.');
+    }
+
+    // Cross-check what was given together: which key belongs to which certificate, who signed whom.
+    for (const item of items.filter(it => it.cert)) {
+      for (const other of items.filter(it => it.privateBlob && item.blob)) {
+        item.rows.push(['Private key in input', equalBytes(other.privateBlob, item.blob) ? '✓ matches' : '✗ does not match']);
+      }
+      for (const issuer of items.filter(it => it.cert && it !== item && equalBytes(it.cert.subject, item.cert.issuer))) {
+        const ok = await verifySignature(issuer.cert.spki, item.cert.sigOid, item.cert.tbs, item.cert.signature);
+        item.rows.push(['Signed by', `${issuer.cert.subjectText} ${ok ? '(✓ signature valid)' : '(✗ signature invalid)'}`]);
+      }
+    }
+    return items.map(({ title, info, rows, files }) => ({ title, info, rows, files }));
+  }
+
+  async function inspectDer(der, passphrase, outputPassphrase) {
+    for (const attempt of [
+      () => inspectCertificate(der),
+      () => inspectCsr(der),
+      () => inspectPrivateKey({ label: 'PRIVATE KEY', headers: '', der }, passphrase, outputPassphrase),
+      () => inspectPublicKey(parseDocument(der).raw),
+    ]) {
+      try { return await attempt(); } catch { /* try the next format */ }
+    }
+    throw new Error('Unrecognised binary data. Supported: DER certificates, CSRs, PKCS#8 keys and public keys.');
+  }
+
+  function inspectPem(block, passphrase, outputPassphrase) {
+    if (block.label === 'CERTIFICATE') return inspectCertificate(block.der);
+    if (/CERTIFICATE REQUEST$/.test(block.label)) return inspectCsr(block.der);
+    if (block.label === 'PUBLIC KEY') return inspectPublicKey(block.der);
+    if (block.label === 'RSA PUBLIC KEY') return inspectPublicKey(seq(seq(oid(OID.rsaEncryption), derNull()), bitString(block.der)));
+    if (/PRIVATE KEY$/.test(block.label)) return inspectPrivateKey(block, passphrase, outputPassphrase);
+    throw new Error(`Unsupported PEM type: ${block.label}`);
+  }
+
+  async function inspectCertificate(der) {
+    const c = parseCertificate(der);
+    const now = new Date();
+    const status = now > c.notAfter ? ' (expired)' : now < c.notBefore ? ' (not yet valid)' : '';
+    const rows = [
+      ['Subject', c.subjectText],
+      ['Issuer', c.selfSigned ? 'Self-signed' : c.issuerText],
+      ['Serial', c.serial],
+      ['Valid', `${fmtDate(c.notBefore)} – ${fmtDate(c.notAfter)}${status}`],
+      ['Key', c.keyDescription],
+      ['Signature', c.signatureName],
+      ['Type', c.isCA ? `CA${c.pathLen !== null ? ` (path length ${c.pathLen})` : ''}` : 'End entity'],
+    ];
+    if (c.names.length) rows.push(['Alternative names', c.names.map(n => n.value).join(', ')]);
+    if (c.usages.length) rows.push(['Key usage', c.usages.join(', ')]);
+    if (c.extUsages.length) rows.push(['Extended key usage', c.extUsages.join(', ')]);
+    if (c.keyId) rows.push(['Subject key ID', toHex(c.keyId)]);
+    if (c.authorityKeyId) rows.push(['Authority key ID', toHex(c.authorityKeyId)]);
+    if (c.selfSigned) {
+      const ok = await verifySignature(c.spki, c.sigOid, c.tbs, c.signature);
+      rows.push(['Self-signature', ok ? '✓ valid' : ok === null ? 'not checked (unsupported algorithm)' : '✗ invalid']);
+    }
+    rows.push(['SHA-256 fingerprint', await sha256Hex(der)]);
+
+    const base = (c.commonName || 'certificate').replace(/^\*\./, 'wildcard.').replace(/[^A-Za-z0-9._-]+/g, '_');
+    const files = [['Certificate (PEM)', base + '.pem', certificatePem(der)], ['Certificate (DER)', base + '.der', der]];
+    let blob = null;
+    try {
+      blob = spkiToSshBlob(c.spki);
+      files.push(['Public key (PEM)', base + '.pub.pem', toPem('PUBLIC KEY', c.spki)]);
+    } catch { /* unsupported key type */ }
+    return { title: c.isCA ? '📜 CA Certificate' : '📜 Certificate', info: c.commonName, rows, files, cert: c, blob };
+  }
+
+  async function inspectCsr(der) {
+    const r = await parseCsr(der);
+    const rows = [
+      ['Subject', r.subjectText],
+      ['Key', r.keyDescription],
+      ['Signature', `${r.signatureName} ${r.signatureValid ? '(✓ valid)' : r.signatureValid === null ? '(not checked)' : '(✗ invalid)'}`],
+    ];
+    if (r.names.length) rows.push(['Requested names', r.names.map(n => n.value).join(', ')]);
+    const base = (r.commonName || 'request').replace(/[^A-Za-z0-9._-]+/g, '_');
+    return {
+      title: '📝 Certificate Request', info: r.commonName, rows,
+      files: [['CSR (PEM)', base + '.csr', toPem('CERTIFICATE REQUEST', der)], ['CSR (DER)', base + '.csr.der', der]],
+    };
+  }
+
+  async function inspectPublicKey(spki) {
+    const blob = spkiToSshBlob(spki);
+    return {
+      title: '🔑 Public Key', info: describeSpki(spki),
+      rows: [['Key', describeSpki(spki)], ['SSH fingerprint', await sshFingerprint(blob)]],
+      files: [
+        ['SSH public key', 'key.pub', sshPublicKeyLine(blob, '')],
+        ['Public key (PEM)', 'public.pem', toPem('PUBLIC KEY', spki)],
+        ['Public key (DER)', 'public.der', spki],
+      ],
+      blob,
+    };
+  }
+
+  async function inspectPrivateKey(block, passphrase, outputPassphrase) {
+    const format = KEY_FORMATS[block.label] || block.label;
+    const encryptedInput = block.label === 'ENCRYPTED PRIVATE KEY' ||
+      (block.label === 'OPENSSH PRIVATE KEY' && !/^openssh-key-v1\0\0\0\0\x04none/.test(decodeUtf8(block.der.subarray(0, 23))));
+    if (encryptedInput && !passphrase) {
+      return { title: '🔐 Private Key', info: format,
+        rows: [['Format', format], ['Encrypted', 'Yes. Enter the passphrase to inspect and convert it.']], files: [] };
+    }
+
+    const { privateKey, comment } = await privateKeyFromBlock(block, passphrase);
+    const spki = await publicSpki(privateKey);
+    const blob = spkiToSshBlob(spki);
+    const rows = [
+      ['Format', format],
+      ['Key', describeSpki(spki)],
+      ['Encrypted', encryptedInput ? 'Yes' : 'No'],
+      ...(comment ? [['Comment', comment]] : []),
+      ['SSH fingerprint', await sshFingerprint(blob)],
+    ];
+    const sshName = 'id_' + ({ 'ssh-ed25519': 'ed25519', 'ssh-rsa': 'rsa' }[sshReader(blob).text()] || 'ecdsa');
+    const enc = outputPassphrase ? ' (encrypted)' : '';
+    const files = [
+      [`PKCS#8 private key${enc}`, 'private.pem', await exportPrivateKey(privateKey, outputPassphrase)],
+      [`OpenSSH private key${enc}`, sshName, (await encodeOpenSshPrivateKey(privateKey, comment, outputPassphrase)).pem],
+      ['SSH public key', sshName + '.pub', sshPublicKeyLine(blob, comment)],
+      ['Public key (PEM)', 'public.pem', toPem('PUBLIC KEY', spki)],
+    ];
+    if (privateKey.algorithm.name === RSA && !outputPassphrase) {
+      files.splice(1, 0, ['PKCS#1 private key', 'private-rsa.pem', await exportPkcs1(privateKey)]);
+    }
+    return { title: '🔐 Private Key', info: describeSpki(spki), rows, files, privateBlob: blob };
+  }
+
+  async function inspectSshLine(line) {
+    const { name, blob, comment } = parseSshPublicKey(line);
+    if (name.endsWith(CERT_SUFFIX)) {
+      const c = await parseSshCertificate(blob);
+      return {
+        title: '📜 SSH Certificate', info: `${c.type} certificate`,
+        rows: [
+          ['Key', `${describeSshBlob(c.keyBlob)} ${await sshFingerprint(c.keyBlob)}`],
+          ['Key ID', c.keyId || '(none)'],
+          ['Serial', c.serial],
+          ['Principals', c.principals.join(', ') || '(any)'],
+          ['Valid', `${c.validAfter && c.validAfter.getTime() ? fmtDate(c.validAfter) : 'always'} – ${fmtDate(c.validBefore)}`],
+          ['Critical options', c.criticalOptions.join(', ') || '(none)'],
+          ['Extensions', c.extensions.join(', ') || '(none)'],
+          ['Signed by', `${describeSshBlob(c.caBlob)} ${await sshFingerprint(c.caBlob)}`],
+          ['Signature', c.signatureValid ? '✓ valid' : '✗ invalid'],
+        ],
+        files: [['CA public key', 'ca.pub', sshPublicKeyLine(c.caBlob, '')]],
+      };
+    }
+    const spki = sshBlobToSpki(blob);
+    return {
+      title: '🔑 SSH Public Key', info: describeSshBlob(blob),
+      rows: [['Key', describeSshBlob(blob)], ['Fingerprint', await sshFingerprint(blob)], ...(comment ? [['Comment', comment]] : [])],
+      files: spki ? [['Public key (PEM)', 'public.pem', toPem('PUBLIC KEY', spki)]] : [],
+      blob,
+    };
   }
 
   // ---------------------------------------------------------------- misc
@@ -698,12 +1417,11 @@ const Kiwi = (() => {
     return out.match(/.{6}/g).join('-');
   }
 
-  const certificatePem = der => toPem('CERTIFICATE', der);
-
   return {
-    generateSshKey, createCA, loadCA, createServerCertificate, parseSubjectAltNames,
-    exportPrivateKey, certificatePem, randomPassphrase,
+    generateSshKey, generateSshCA, loadSshCA, createSshCertificate,
+    createCA, loadCA, issueCertificate, loadCsr, parseSubjectAltNames, fullChainPem,
+    exportPrivateKey, exportPkcs12, certificatePem, inspect, randomPassphrase,
     // exposed for tests
-    bcryptPbkdf, parsePem, importPrivateKey,
+    bcryptPbkdf, loadPrivateKey,
   };
 })();

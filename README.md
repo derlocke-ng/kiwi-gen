@@ -23,11 +23,23 @@ Try the live demo directly in your browser: [Kiwi Key Generator](https://derlock
 - Optional passphrase, encrypted like `ssh-keygen` does (bcrypt KDF, aes256-ctr)
 - SHA256 fingerprint shown for verification
 
-### SSL/TLS Certificates
-- Create a local Certificate Authority (ECDSA or RSA), with an optionally encrypted key (PKCS#8, AES-256)
-- Or load an existing CA (PEM certificate plus PKCS#8, PKCS#1 or SEC1 key, plain or encrypted)
-- Issue server certificates for any mix of hostnames, wildcards and IP addresses
-- Certificates verify with `openssl verify -x509_strict -purpose sslserver` and meet Apple's requirements for TLS server certificates
+### SSH Certificates
+- Create an SSH CA, or load an existing CA key (OpenSSH or PEM, encrypted or not)
+- Sign user certificates (log in as the listed accounts) or host certificates (no more "unknown host" prompts)
+- Ready-made `sshd_config` and `known_hosts` lines to set up trust
+
+### TLS Certificates
+- Create a root CA, or an intermediate CA under it (ECDSA or RSA); CA keys can be encrypted (PKCS#8, AES-256)
+- Or load an existing CA (PEM certificate, optionally with its chain, plus PKCS#8, PKCS#1, SEC1 or OpenSSH key)
+- Issue server certificates for hostnames, wildcards and IP addresses, or client certificates for TLS client authentication
+- Sign certificate requests (CSRs) from elsewhere, so the private key never has to come here
+- Full chain file for servers when an intermediate signs, and `.p12` bundles for Windows, macOS, browsers and Java
+- Certificates pass `openssl verify -x509_strict` and meet Apple's requirements for TLS server certificates
+
+### Inspect & Convert
+- Paste or open certificates, CSRs, private/public keys, SSH public keys and SSH certificates (PEM or DER) to see their details and fingerprints
+- Checks whether a key matches a certificate, and whether a certificate was signed by another one in the same input
+- Converts private keys between PKCS#8, PKCS#1 and OpenSSH, adding or removing a passphrase, and public keys between SSH and PEM
 
 ## 🔧 Usage
 
@@ -41,10 +53,12 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000`. WebCrypto only works in secure contexts, so serving over plain HTTP from another machine won't work; use HTTPS, localhost or `file://`.
 
-To use your CA, import its certificate (`.pem`) into your OS or browser trust store, then configure your server with the certificate and key you generated.
+To use your TLS CA, import its certificate (`.pem`) into your OS or browser trust store, then configure your server with the certificate and key you generated (use the full chain file if an intermediate signed it).
+
+A web page can't act as an SSH agent: browsers have no access to `SSH_AUTH_SOCK`. Load the keys and certificates you make here into your usual `ssh-agent` with `ssh-add`.
 
 ## 💻 How It Works
 
-All cryptography uses the browser's built-in [Web Crypto API](https://developer.mozilla.org/docs/Web/API/Web_Crypto_API). The OpenSSH, X.509 and PKCS#8 encoding lives in `kiwi-crypto.js` (one file, no dependencies). There is no build step and nothing is loaded from a CDN. A Content-Security-Policy blocks all network requests, so keys can't leave the page.
+All cryptography uses the browser's built-in [Web Crypto API](https://developer.mozilla.org/docs/Web/API/Web_Crypto_API). The OpenSSH, X.509, PKCS#8, PKCS#10 and PKCS#12 encoding lives in `kiwi-crypto.js` (one file, no dependencies). There is no build step and nothing is loaded from a CDN. A Content-Security-Policy blocks all network requests, so keys can't leave the page.
 
 Ed25519 needs a current browser (Chrome 137+, Firefox 129+, Safari 17+).
