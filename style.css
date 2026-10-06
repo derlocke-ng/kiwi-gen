@@ -304,6 +304,30 @@ a:hover {
   flex: 1;
 }
 
+.form-group small {
+  color: var(--content-medium);
+  font-size: 0.8rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.generator-section h2:first-child {
+  margin-top: 0;
+}
+
+.warning {
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  border-radius: 8px;
+  border: 2px solid hsl(0, 65%, 50%);
+  color: hsl(0, 65%, calc(40% + (var(--dark-mode) * 30%)));
+  font-weight: 600;
+}
+
 /* Generate SSH Key button specific spacing */
 #generateSSH {
   margin-top: 0.75rem;
@@ -584,8 +608,9 @@ a:hover {
 }
 
 .notification-error {
-  background: var(--header-accent);
-  color: var(--header-bg);
+  background: hsl(0, 65%, 50%);
+  color: white;
+  max-width: min(32rem, calc(100vw - 40px));
 }
 
 .notification-info {
@@ -651,6 +676,10 @@ a:hover {
   
   .passphrase-container {
     flex-direction: column;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
   }
   
   .ssl-buttons {
