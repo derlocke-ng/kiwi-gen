@@ -3,119 +3,467 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Nothing on this page may talk to the network: keys never leave the browser. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
   <title>Kiwi Key Generator</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"></script>
 </head>
 <body>
   <div class="main-wrapper">
     <main>
       <div class="app-header">
         <h1>🥝 Kiwi Key Generator</h1>
-        <p>Generate SSH keys and SSL certificates locally.</p>
+        <p>SSH keys, SSH certificates and TLS certificates, made locally. Nothing leaves your browser.</p>
       </div>
-      
+
       <div class="main-content">
-        <!-- Mode Toggle Buttons -->
-        <div class="mode-toggle">
-          <button type="button" id="sshModeBtn" class="mode-btn active">🔐 SSH Keys</button>
-          <button type="button" id="sslModeBtn" class="mode-btn">🔒 SSL Certificates</button>
+        <div id="unsupported" class="warning" hidden>
+          WebCrypto is unavailable here. Open this page via https://, http://localhost or directly as a file.
         </div>
-        
-        <!-- Unified Generation Section -->
-        <section id="generation-section" class="generator-section">
-          <div class="form-container">
-            
-            <!-- SSH Key Form -->
-            <div id="ssh-form" class="form-mode active">
-              <div class="form-group">
-                <label for="hostname">Hostname/Name:</label>
-                <input type="text" id="hostname" placeholder="e.g., myserver" required>
-              </div>
-              
-              <div class="form-group">
-                <label for="algorithm">Algorithm:</label>
-                <select id="algorithm">
-                  <option value="rsa">RSA</option>
-                  <option value="ed25519" selected>Ed25519</option>
-                  <option value="ecdsa">ECDSA</option>
-                </select>
-              </div>
-              
-              <div class="form-group" id="bit-size-group">
-                <label for="bitSize">Bit Size:</label>
-                <select id="bitSize">
-                  <option value="2048">2048</option>
-                  <option value="4096" selected>4096</option>
-                </select>
-              </div>
-              
-              <div class="form-group">
-                <label for="passphrase">Passphrase:</label>
-                <div class="passphrase-container">
-                  <input type="password" id="passphrase" placeholder="Leave empty for no passphrase">
-                  <button type="button" id="generatePassphrase" class="btn-secondary">Generate</button>
+
+        <div class="mode-toggle">
+          <button type="button" class="mode-btn" data-mode="vault-mode">🗄️ Vault</button>
+          <button type="button" class="mode-btn active" data-mode="ssh-mode">🔐 SSH Keys</button>
+          <button type="button" class="mode-btn" data-mode="sshcert-mode">📜 SSH Certificates</button>
+          <button type="button" class="mode-btn" data-mode="ssl-mode">🔒 TLS Certificates</button>
+          <button type="button" class="mode-btn" data-mode="inspect-mode">🔍 Inspect &amp; Convert</button>
+        </div>
+
+        <!-- Vault -->
+        <div id="vault-mode" class="form-mode">
+          <section class="generator-section" id="vault-locked">
+            <h2>🗄️ Vault</h2>
+            <p class="section-intro">Keep your keys and certificates in an encrypted vault (AES-256-GCM) stored in this browser.
+              While it is unlocked, everything you create in the other tabs is saved to it. Export it to back it up or move it to another device.</p>
+            <div class="form-container">
+              <div id="vault-create">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="vault-new-password">Master password</label>
+                    <input type="password" id="vault-new-password" placeholder="At least 8 characters" autocomplete="new-password">
+                  </div>
+                  <div class="form-group">
+                    <label for="vault-new-password2">Repeat password</label>
+                    <input type="password" id="vault-new-password2" autocomplete="new-password">
+                  </div>
                 </div>
-              </div>
-              
-              <button type="button" id="generateSSH" class="btn-primary">Generate SSH Key</button>
-            </div>
-            
-            <!-- SSL Certificate Form -->
-            <div id="ssl-form" class="form-mode">
-              <div class="ssl-buttons">
-                <button type="button" id="createCA" class="btn-primary">Create Certificate Authority (CA)</button>
-                <div class="ca-status" id="caStatus">No CA found</div>
+                <small>There is no way to recover a forgotten password.</small>
+                <button type="button" id="vaultCreate" class="btn-primary">Create Vault</button>
               </div>
 
-              <div class="form-group">
-                <label for="ca-passphrase">CA Private Key Passphrase:</label>
-                <div class="passphrase-container">
-                  <input type="password" id="ca-passphrase" placeholder="Leave empty for no encryption">
-                  <button type="button" id="generateCAPassphrase" class="btn-secondary">Generate</button>
+              <div id="vault-unlock" hidden>
+                <div class="form-group">
+                  <label for="vault-password">Master password</label>
+                  <input type="password" id="vault-password" autocomplete="current-password">
+                </div>
+                <button type="button" id="vaultUnlock" class="btn-primary">Unlock</button>
+              </div>
+
+              <div class="upload-section-container">
+                <div class="upload-section-header">
+                  <h3><span class="fold-icon">📂</span> <span id="vault-open-title">Or open a vault file</span></h3>
+                </div>
+                <div class="upload-section-content">
+                  <div class="form-group">
+                    <label for="vault-open-file">Vault file (.kiwi.json)</label>
+                    <input type="file" id="vault-open-file" accept=".json,application/json">
+                  </div>
+                  <div class="form-group">
+                    <label for="vault-open-password">Its master password</label>
+                    <input type="password" id="vault-open-password" autocomplete="off">
+                  </div>
+                  <button type="button" id="vaultOpenFile" class="btn-secondary">Open Vault File</button>
+                  <button type="button" id="vaultForget" class="btn-secondary btn-danger" hidden>Delete the vault stored in this browser</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="generator-section" id="vault-unlocked" hidden>
+            <div class="vault-toolbar">
+              <h2>🗄️ Vault</h2>
+              <div class="file-actions">
+                <button type="button" id="vaultExport" class="btn-download">💾 Export</button>
+                <button type="button" id="vaultLock" class="btn-copy">🔒 Lock</button>
+              </div>
+            </div>
+            <p class="section-intro" id="vault-status"></p>
+            <div class="form-container">
+              <div class="upload-section-container">
+                <div class="upload-section-header">
+                  <h3><span class="fold-icon">➕</span> Add existing keys and certificates</h3>
+                </div>
+                <div class="upload-section-content">
+                  <div class="form-group">
+                    <label for="vault-import-text">Paste PEM, OpenSSH keys, SSH public keys or certificates</label>
+                    <textarea id="vault-import-text" rows="5" spellcheck="false" placeholder="A certificate with its key and chain is stored as one item"></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for="vault-import-file">Or open a file (PEM, DER or another vault file to merge)</label>
+                    <input type="file" id="vault-import-file">
+                  </div>
+                  <div class="form-group">
+                    <label for="vault-import-passphrase">Passphrase (encrypted key or other vault)</label>
+                    <input type="password" id="vault-import-passphrase" autocomplete="off">
+                  </div>
+                  <button type="button" id="vaultImport" class="btn-secondary">Add to Vault</button>
                 </div>
               </div>
 
               <div class="upload-section-container">
                 <div class="upload-section-header">
-                  <h3><span class="fold-icon">📂</span> Or Upload Existing CA</h3>
+                  <h3><span class="fold-icon">🔑</span> Change master password</h3>
+                </div>
+                <div class="upload-section-content">
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="vault-change-password">New master password</label>
+                      <input type="password" id="vault-change-password" autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                      <label for="vault-change-password2">Repeat password</label>
+                      <input type="password" id="vault-change-password2" autocomplete="new-password">
+                    </div>
+                  </div>
+                  <button type="button" id="vaultChangePassword" class="btn-secondary">Change Password</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="vault-search">Search</label>
+                <input type="search" id="vault-search" placeholder="Name, type, hostname…" autocomplete="off">
+              </div>
+              <div id="vault-list" class="vault-list"></div>
+            </div>
+          </section>
+        </div>
+
+        <!-- SSH keys -->
+        <div id="ssh-mode" class="form-mode active">
+          <section class="generator-section">
+            <div class="form-container">
+              <div class="form-group">
+                <label for="ssh-type">Key type</label>
+                <select id="ssh-type">
+                  <option value="ed25519" selected>Ed25519 (recommended)</option>
+                  <option value="ecdsa-P-256">ECDSA P-256</option>
+                  <option value="ecdsa-P-384">ECDSA P-384</option>
+                  <option value="ecdsa-P-521">ECDSA P-521</option>
+                  <option value="rsa-3072">RSA 3072</option>
+                  <option value="rsa-4096">RSA 4096</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="ssh-comment">Comment</label>
+                <input type="text" id="ssh-comment" placeholder="e.g., user@laptop" autocomplete="off">
+              </div>
+
+              <div class="form-group">
+                <label for="ssh-passphrase">Passphrase</label>
+                <div class="passphrase-container">
+                  <input type="password" id="ssh-passphrase" placeholder="Leave empty for no passphrase" autocomplete="new-password">
+                  <button type="button" class="btn-secondary" data-passphrase-for="ssh-passphrase">Generate</button>
+                </div>
+              </div>
+
+              <button type="button" id="generateSSH" class="btn-primary">Generate SSH Key</button>
+            </div>
+          </section>
+          <section class="generator-section">
+            <h2>📋 Generated Files</h2>
+            <div id="ssh-output" class="output-container">
+              <p class="output-placeholder">Your SSH key will appear here...</p>
+            </div>
+          </section>
+        </div>
+
+        <!-- SSH certificates -->
+        <div id="sshcert-mode" class="form-mode">
+          <section class="generator-section">
+            <h2>1. SSH Certificate Authority</h2>
+            <div class="form-container">
+              <div class="ca-status" id="sshCaStatus">No SSH CA loaded</div>
+
+              <div class="form-group vault-picker" hidden>
+                <label for="sshca-vault">Use a key from the vault</label>
+                <select id="sshca-vault"></select>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="sshca-type">Key type</label>
+                  <select id="sshca-type">
+                    <option value="ed25519" selected>Ed25519</option>
+                    <option value="ecdsa-P-256">ECDSA P-256</option>
+                    <option value="ecdsa-P-384">ECDSA P-384</option>
+                    <option value="rsa-4096">RSA 4096</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="sshca-comment">Comment</label>
+                  <input type="text" id="sshca-comment" value="ssh-ca" autocomplete="off">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="sshca-passphrase">CA key passphrase</label>
+                <div class="passphrase-container">
+                  <input type="password" id="sshca-passphrase" placeholder="Leave empty for no passphrase" autocomplete="new-password">
+                  <button type="button" class="btn-secondary" data-passphrase-for="sshca-passphrase">Generate</button>
+                </div>
+              </div>
+
+              <button type="button" id="createSshCA" class="btn-primary">Create SSH CA</button>
+
+              <div class="upload-section-container">
+                <div class="upload-section-header">
+                  <h3><span class="fold-icon">📂</span> Or load an existing CA key</h3>
                 </div>
                 <div class="upload-section-content">
                   <div class="form-group">
-                    <label for="upload-ca-key">CA Private Key (.key):</label>
+                    <label for="upload-sshca-key">CA private key (OpenSSH or PEM)</label>
+                    <input type="file" id="upload-sshca-key">
+                  </div>
+                  <div class="form-group">
+                    <label for="upload-sshca-passphrase">Key passphrase (if encrypted)</label>
+                    <input type="password" id="upload-sshca-passphrase" placeholder="Leave empty if unencrypted" autocomplete="off">
+                  </div>
+                  <button type="button" id="uploadSshCA" class="btn-secondary">Load CA</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="generator-section">
+            <h2>2. Sign a Public Key</h2>
+            <div class="form-container">
+              <div class="form-group">
+                <label for="sshcert-pubkey">Public key</label>
+                <select id="sshcert-vault-key" class="vault-picker" hidden></select>
+                <textarea id="sshcert-pubkey" rows="3" spellcheck="false" placeholder="ssh-ed25519 AAAA... user@laptop"></textarea>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="sshcert-type">Certificate type</label>
+                  <select id="sshcert-type">
+                    <option value="user" selected>User (log in to servers)</option>
+                    <option value="host">Host (identify a server)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="sshcert-days">Valid for (days)</label>
+                  <input type="number" id="sshcert-days" value="365" min="0" max="36500">
+                  <small>0 means forever.</small>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="sshcert-keyid">Key ID</label>
+                  <input type="text" id="sshcert-keyid" placeholder="e.g., alice@laptop" autocomplete="off">
+                  <small>Shows up in the server's logs.</small>
+                </div>
+                <div class="form-group">
+                  <label for="sshcert-principals" id="sshcert-principals-label">Usernames</label>
+                  <input type="text" id="sshcert-principals" placeholder="e.g., alice root" autocomplete="off">
+                  <small id="sshcert-principals-hint">Accounts this certificate may log in as.</small>
+                </div>
+              </div>
+
+              <button type="button" id="createSshCert" class="btn-primary" disabled>Sign Public Key</button>
+            </div>
+          </section>
+
+          <section class="generator-section">
+            <h2>📋 Generated Files</h2>
+            <div class="output-container">
+              <div id="sshca-output"></div>
+              <div id="sshcert-output"></div>
+              <p class="output-placeholder" id="sshcert-placeholder">Your SSH CA and certificates will appear here...</p>
+            </div>
+          </section>
+        </div>
+
+        <!-- TLS -->
+        <div id="ssl-mode" class="form-mode">
+          <section class="generator-section">
+            <h2>1. Certificate Authority</h2>
+            <div class="form-container">
+              <div class="ca-status" id="caStatus">No CA loaded</div>
+
+              <div class="form-group vault-picker" hidden>
+                <label for="ca-vault">Use a CA from the vault</label>
+                <select id="ca-vault"></select>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="ca-kind">Create</label>
+                  <select id="ca-kind">
+                    <option value="root" selected>Root CA</option>
+                    <option value="intermediate" disabled>Intermediate CA (signed by the current CA)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ca-name">CA name</label>
+                  <input type="text" id="ca-name" value="Kiwi Local CA" autocomplete="off">
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="ca-type">Key type</label>
+                  <select id="ca-type">
+                    <option value="ecdsa-P-256" selected>ECDSA P-256</option>
+                    <option value="ecdsa-P-384">ECDSA P-384</option>
+                    <option value="rsa-2048">RSA 2048</option>
+                    <option value="rsa-4096">RSA 4096</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ca-days">Valid for (days)</label>
+                  <input type="number" id="ca-days" value="3650" min="1" max="36500">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="ca-passphrase">CA key passphrase</label>
+                <div class="passphrase-container">
+                  <input type="password" id="ca-passphrase" placeholder="Leave empty for no encryption" autocomplete="new-password">
+                  <button type="button" class="btn-secondary" data-passphrase-for="ca-passphrase">Generate</button>
+                </div>
+              </div>
+
+              <button type="button" id="createCA" class="btn-primary">Create CA</button>
+
+              <div class="upload-section-container">
+                <div class="upload-section-header">
+                  <h3><span class="fold-icon">📂</span> Or load an existing CA</h3>
+                </div>
+                <div class="upload-section-content">
+                  <div class="form-group">
+                    <label for="upload-ca-cert">CA certificate (.pem, .crt)</label>
+                    <input type="file" id="upload-ca-cert" accept=".pem,.crt,.cer">
+                    <small>For an intermediate CA, the file may also contain the rest of its chain.</small>
+                  </div>
+                  <div class="form-group">
+                    <label for="upload-ca-key">CA private key (.key, .pem)</label>
                     <input type="file" id="upload-ca-key" accept=".key,.pem">
                   </div>
                   <div class="form-group">
-                    <label for="upload-ca-cert">CA Certificate (.pem):</label>
-                    <input type="file" id="upload-ca-cert" accept=".pem,.crt">
+                    <label for="upload-ca-passphrase">Key passphrase (if encrypted)</label>
+                    <input type="password" id="upload-ca-passphrase" placeholder="Leave empty if unencrypted" autocomplete="off">
                   </div>
-                  <div class="form-group">
-                    <label for="upload-ca-passphrase">CA Key Passphrase (if encrypted):</label>
-                    <input type="password" id="upload-ca-passphrase" placeholder="Leave empty if unencrypted">
-                  </div>
-                  <button type="button" id="uploadCA" class="btn-secondary">Load CA Files</button>
+                  <button type="button" id="uploadCA" class="btn-secondary">Load CA</button>
                 </div>
               </div>
-              
-              <div class="form-group">
-                <label for="domain">Domain Name:</label>
-                <input type="text" id="domain" placeholder="e.g., example.com">
+            </div>
+          </section>
+
+          <section class="generator-section">
+            <h2>2. Issue a Certificate</h2>
+            <div class="form-container">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="cert-profile">Certificate for</label>
+                  <select id="cert-profile">
+                    <option value="server" selected>Server (HTTPS, TLS)</option>
+                    <option value="client">Client (TLS client authentication)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="cert-type">Key</label>
+                  <select id="cert-type">
+                    <option value="ecdsa-P-256" selected>New ECDSA P-256 key</option>
+                    <option value="rsa-2048">New RSA 2048 key</option>
+                    <option value="rsa-4096">New RSA 4096 key</option>
+                    <option value="csr">From a CSR (sign a request)</option>
+                  </select>
+                </div>
               </div>
-              
+
+              <div class="form-group" id="cert-csr-group" hidden>
+                <label for="cert-csr">Certificate signing request</label>
+                <textarea id="cert-csr" rows="4" spellcheck="false" placeholder="-----BEGIN CERTIFICATE REQUEST-----"></textarea>
+                <small>The subject is copied from the request. Names it requests are filled in below for you to review.</small>
+              </div>
+
+              <div class="form-group" id="cert-cn-group" hidden>
+                <label for="cert-cn">Name</label>
+                <input type="text" id="cert-cn" placeholder="e.g., Alice Example" autocomplete="off">
+              </div>
+
+              <div class="form-group">
+                <label for="cert-names" id="cert-names-label">Hostnames and IP addresses</label>
+                <input type="text" id="cert-names" placeholder="e.g., example.com *.example.com 192.168.1.10" autocomplete="off">
+                <small id="cert-names-hint">Separate with spaces or commas. The first entry becomes the common name.</small>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="cert-days">Valid for (days)</label>
+                  <input type="number" id="cert-days" value="825" min="1" max="36500">
+                  <small>Apple devices reject server certificates valid for more than 825 days.</small>
+                </div>
+                <div class="form-group" id="cert-p12-group">
+                  <label for="cert-p12">.p12 password</label>
+                  <div class="passphrase-container">
+                    <input type="password" id="cert-p12" placeholder="Leave empty to skip .p12" autocomplete="new-password">
+                    <button type="button" class="btn-secondary" data-passphrase-for="cert-p12">Generate</button>
+                  </div>
+                  <small>For importing into Windows, macOS, browsers or Java.</small>
+                </div>
+              </div>
+
               <button type="button" id="createCert" class="btn-primary" disabled>Create Certificate</button>
             </div>
-            
-          </div>
-        </section>
-        
-        <!-- Output Section -->
-        <section id="output-section" class="generator-section">
-          <h2>📋 Generated Files</h2>
-          <div id="output" class="output-container">
-            <p class="output-placeholder">Generated keys and certificates will appear here...</p>
-          </div>
-        </section>
+          </section>
+
+          <section class="generator-section">
+            <h2>📋 Generated Files</h2>
+            <div class="output-container">
+              <div id="ca-output"></div>
+              <div id="cert-output"></div>
+              <p class="output-placeholder" id="ssl-placeholder">Your CA and certificates will appear here...</p>
+            </div>
+          </section>
+        </div>
+
+        <!-- Inspect & convert -->
+        <div id="inspect-mode" class="form-mode">
+          <section class="generator-section">
+            <div class="form-container">
+              <div class="form-group">
+                <label for="inspect-input">Certificate, key, CSR or SSH key</label>
+                <textarea id="inspect-input" rows="6" spellcheck="false" placeholder="Paste PEM, OpenSSH or SSH public keys (an authorized_keys file works too)"></textarea>
+              </div>
+              <div class="form-group">
+                <label for="inspect-file">Or open a file (PEM or DER)</label>
+                <input type="file" id="inspect-file">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="inspect-passphrase">Passphrase of the input</label>
+                  <input type="password" id="inspect-passphrase" placeholder="If the key is encrypted" autocomplete="off">
+                </div>
+                <div class="form-group">
+                  <label for="inspect-out-passphrase">Passphrase for converted keys</label>
+                  <input type="password" id="inspect-out-passphrase" placeholder="Leave empty for unencrypted" autocomplete="new-password">
+                </div>
+              </div>
+              <button type="button" id="inspectBtn" class="btn-primary">Inspect</button>
+            </div>
+          </section>
+          <section class="generator-section">
+            <h2>📋 Details &amp; Conversions</h2>
+            <div id="inspect-output" class="output-container">
+              <p class="output-placeholder">Details and converted formats will appear here...</p>
+            </div>
+          </section>
+        </div>
       </div>
     </main>
   </div>
@@ -161,9 +509,11 @@
   </div>
 
   <!-- Theme Controls Button -->
-  <button id="openTheme" class="theme-button">🎨</button>
+  <button id="openTheme" class="theme-button" aria-label="Theme settings">🎨</button>
 
-  <script src="crypto-generator.js"></script>
+  <script src="kiwi-crypto.js"></script>
+  <script src="app.js"></script>
+  <script src="vault.js"></script>
   <script src="theme.js"></script>
 </body>
 </html>

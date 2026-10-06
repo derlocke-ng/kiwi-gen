@@ -23,6 +23,10 @@
   --header-link-hover: hsl(var(--header-hue), 60%, calc(70% + (var(--dark-mode) * 15%)));
 }
 
+[hidden] {
+  display: none !important;
+}
+
 /* Global box-sizing reset for better layout control */
 *,
 *::before,
@@ -290,7 +294,8 @@ a:hover {
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
   padding: 0.75rem;
   border: 2px solid var(--content-light);
   border-radius: 8px;
@@ -302,6 +307,42 @@ a:hover {
 
 .passphrase-container input {
   flex: 1;
+}
+
+.form-group textarea {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.binary-note {
+  margin: 0;
+  color: var(--content-medium);
+  font-size: 0.9rem;
+}
+
+.form-group small {
+  color: var(--content-medium);
+  font-size: 0.8rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.generator-section h2:first-child {
+  margin-top: 0;
+}
+
+.warning {
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  border-radius: 8px;
+  border: 2px solid hsl(0, 65%, 50%);
+  color: hsl(0, 65%, calc(40% + (var(--dark-mode) * 30%)));
+  font-weight: 600;
 }
 
 /* Generate SSH Key button specific spacing */
@@ -365,7 +406,7 @@ a:hover {
 }
 
 .upload-section-container.open .upload-section-content {
-  max-height: 450px;
+  max-height: 900px;
   padding: 1.25rem;
 }
 
@@ -584,8 +625,9 @@ a:hover {
 }
 
 .notification-error {
-  background: var(--header-accent);
-  color: var(--header-bg);
+  background: hsl(0, 65%, 50%);
+  color: white;
+  max-width: min(32rem, calc(100vw - 40px));
 }
 
 .notification-info {
@@ -652,6 +694,11 @@ a:hover {
   .passphrase-container {
     flex-direction: column;
   }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
   
   .ssl-buttons {
     gap: 0.75rem;
@@ -738,7 +785,8 @@ a:hover {
 
 /* Mode Toggle Styles */
 .mode-toggle {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 0;
   margin-bottom: 2rem;
   border-radius: 8px;
@@ -747,8 +795,7 @@ a:hover {
 }
 
 .mode-btn {
-  flex: 1;
-  padding: 0.875rem 1.5rem;
+  padding: 0.875rem 0.75rem;
   border: none;
   background: var(--content-light);
   color: var(--content-text);
@@ -759,13 +806,6 @@ a:hover {
   position: relative;
 }
 
-.mode-btn:first-child {
-  border-radius: 8px 0 0 8px;
-}
-
-.mode-btn:last-child {
-  border-radius: 0 8px 8px 0;
-}
 
 .mode-btn:hover:not(.active) {
   background: var(--content-medium);
@@ -1175,4 +1215,115 @@ a:hover {
 .btn-download:hover {
   background: var(--header-link-hover);
   transform: translateY(-1px);
+}
+
+/* Vault */
+.section-intro {
+  margin: 0 0 1rem;
+  color: var(--content-text);
+  line-height: 1.5;
+}
+
+.vault-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.vault-toolbar h2 {
+  margin: 0;
+}
+
+.vault-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.vault-item {
+  border: 1px solid var(--content-light);
+  border-radius: 8px;
+  background: var(--bg-light);
+  padding: 0.75rem 1rem;
+}
+
+.vault-item.open {
+  border-color: var(--content-medium);
+}
+
+.vault-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.vault-item-main {
+  min-width: 0;
+}
+
+.vault-item-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--content-darker);
+}
+
+.vault-item-desc {
+  margin-top: 0.25rem;
+  color: var(--content-medium);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.vault-item-details {
+  margin-top: 1rem;
+}
+
+.badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid var(--content-light);
+  color: var(--content-dark);
+  white-space: nowrap;
+}
+
+.badge-warn {
+  border-color: hsl(35, 80%, 50%);
+  color: hsl(35, 80%, calc(35% + (var(--dark-mode) * 25%)));
+}
+
+.badge-bad {
+  border-color: hsl(0, 65%, 50%);
+  color: hsl(0, 65%, calc(40% + (var(--dark-mode) * 25%)));
+}
+
+.btn-danger {
+  background: hsl(0, 65%, 50%);
+  color: white;
+  border-color: hsl(0, 65%, 50%);
+}
+
+.btn-danger:hover {
+  background: hsl(0, 65%, 42%);
+}
+
+.vault-picker {
+  margin-bottom: 0.25rem;
+}
+
+@media (max-width: 480px) {
+  .vault-item-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.certificate-details p {
+  overflow-wrap: anywhere;
 }

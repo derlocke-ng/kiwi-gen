@@ -7,8 +7,6 @@ class ThemeController {
   }
 
   initializeElements() {
-    console.log('Initializing theme elements...');
-    
     // Theme popup elements
     this.openThemeBtn = document.getElementById('openTheme');
     this.closeThemeBtn = document.getElementById('closeTheme');
@@ -25,15 +23,17 @@ class ThemeController {
     this.headerPreview = document.getElementById('headerPreview');
     this.contentSwatch = document.getElementById('contentSwatch');
     this.headerSwatch = document.getElementById('headerSwatch');
-    
-    console.log('Theme elements initialized');
+
   }
 
   loadSavedThemes() {
     // Load saved themes or use defaults
     const savedContentHue = localStorage.getItem('kiwi-gen-contentHue') || '100';
     const savedHeaderHue = localStorage.getItem('kiwi-gen-headerHue') || '210';
-    const savedDarkMode = localStorage.getItem('kiwi-gen-darkMode') === 'true';
+    const savedMode = localStorage.getItem('kiwi-gen-darkMode');
+    const savedDarkMode = savedMode === null
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : savedMode === 'true';
 
     // Apply slider values
     if (this.contentSlider) {
@@ -83,7 +83,7 @@ class ThemeController {
     // Content slider
     if (this.contentSlider) {
       this.contentSlider.addEventListener('input', (e) => {
-        const isDark = localStorage.getItem('kiwi-gen-darkMode') === 'true';
+        const isDark = document.documentElement.style.getPropertyValue('--dark-mode') === '1';
         this.updateTheme('content', e.target.value);
         this.updateColorPreviews('content', e.target.value, isDark);
         if (this.contentValue) this.contentValue.textContent = e.target.value + '°';
@@ -94,7 +94,7 @@ class ThemeController {
     // Header slider
     if (this.headerSlider) {
       this.headerSlider.addEventListener('input', (e) => {
-        const isDark = localStorage.getItem('kiwi-gen-darkMode') === 'true';
+        const isDark = document.documentElement.style.getPropertyValue('--dark-mode') === '1';
         this.updateTheme('header', e.target.value);
         this.updateColorPreviews('header', e.target.value, isDark);
         if (this.headerValue) this.headerValue.textContent = e.target.value + '°';
@@ -156,8 +156,7 @@ class ThemeController {
   }
 
   toggleDarkMode() {
-    const currentMode = localStorage.getItem('kiwi-gen-darkMode') === 'true';
-    const newMode = !currentMode;
+    const newMode = document.documentElement.style.getPropertyValue('--dark-mode') !== '1';
     const contentHue = this.contentSlider ? this.contentSlider.value : '100';
     const headerHue = this.headerSlider ? this.headerSlider.value : '210';
     
@@ -288,7 +287,7 @@ class ThemeController {
     // Reset to default values
     const defaultContentHue = '100';
     const defaultHeaderHue = '210';
-    const defaultDarkMode = false;
+    const defaultDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
     
     // Update sliders
     if (this.contentSlider) {
@@ -316,23 +315,9 @@ class ThemeController {
       showNotification('Theme reset to defaults!', 'success');
     }
   }
-
-  // Static method to reset themes to defaults (legacy)
-  static resetToDefaults() {
-    localStorage.removeItem('kiwi-gen-contentHue');
-    localStorage.removeItem('kiwi-gen-headerHue');
-    localStorage.removeItem('kiwi-gen-darkMode');
-    location.reload();
-  }
 }
 
 // Initialize theme controller when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('DOM loaded, initializing ThemeController...');
-  try {
-    window.themeController = new ThemeController();
-    console.log('ThemeController initialized successfully');
-  } catch (error) {
-    console.error('Error initializing ThemeController:', error);
-  }
+  window.themeController = new ThemeController();
 });
