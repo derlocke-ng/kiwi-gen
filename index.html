@@ -8,32 +8,40 @@
   <title>Kiwi Key Generator</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
 </head>
 <body>
-  <div class="main-wrapper">
-    <main>
-      <div class="app-header">
-        <h1>🥝 Kiwi Key Generator</h1>
-        <p>SSH keys, SSH certificates and TLS certificates, made locally. Nothing leaves your browser.</p>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">🥝</span>
+        <div>
+          <h1>Kiwi Key Generator</h1>
+          <p>SSH keys, SSH certificates and TLS certificates, made locally. Nothing leaves your browser.</p>
+        </div>
       </div>
+      <button type="button" id="openTheme" class="icon-btn" aria-label="Appearance" title="Appearance">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
+      </button>
+    </header>
 
-      <div class="main-content">
+    <main>
         <div id="unsupported" class="warning" hidden>
           WebCrypto is unavailable here. Open this page via https://, http://localhost or directly as a file.
         </div>
 
-        <div class="mode-toggle">
-          <button type="button" class="mode-btn" data-mode="vault-mode">🗄️ Vault</button>
-          <button type="button" class="mode-btn active" data-mode="ssh-mode">🔐 SSH Keys</button>
-          <button type="button" class="mode-btn" data-mode="sshcert-mode">📜 SSH Certificates</button>
-          <button type="button" class="mode-btn" data-mode="ssl-mode">🔒 TLS Certificates</button>
-          <button type="button" class="mode-btn" data-mode="inspect-mode">🔍 Inspect &amp; Convert</button>
-        </div>
+        <nav class="mode-toggle" aria-label="Sections">
+          <button type="button" class="mode-btn" data-mode="vault-mode">Vault</button>
+          <button type="button" class="mode-btn active" data-mode="ssh-mode">SSH Keys</button>
+          <button type="button" class="mode-btn" data-mode="sshcert-mode">SSH Certificates</button>
+          <button type="button" class="mode-btn" data-mode="ssl-mode">TLS Certificates</button>
+          <button type="button" class="mode-btn" data-mode="inspect-mode">Inspect &amp; Convert</button>
+        </nav>
 
         <!-- Vault -->
         <div id="vault-mode" class="form-mode">
           <section class="generator-section" id="vault-locked">
-            <h2>🗄️ Vault</h2>
+            <h2>Vault</h2>
             <p class="section-intro">Keep your keys and certificates in an encrypted vault (AES-256-GCM) stored in this browser.
               While it is unlocked, everything you create in the other tabs is saved to it. Export it to back it up or move it to another device.</p>
             <div class="form-container">
@@ -62,7 +70,7 @@
 
               <div class="upload-section-container">
                 <div class="upload-section-header">
-                  <h3><span class="fold-icon">📂</span> <span id="vault-open-title">Or open a vault file</span></h3>
+                  <h3><span class="fold-icon"></span> <span id="vault-open-title">Or open a vault file</span></h3>
                 </div>
                 <div class="upload-section-content">
                   <div class="form-group">
@@ -82,17 +90,17 @@
 
           <section class="generator-section" id="vault-unlocked" hidden>
             <div class="vault-toolbar">
-              <h2>🗄️ Vault</h2>
+              <h2>Vault</h2>
               <div class="file-actions">
-                <button type="button" id="vaultExport" class="btn-download">💾 Export</button>
-                <button type="button" id="vaultLock" class="btn-copy">🔒 Lock</button>
+                <button type="button" id="vaultExport" class="btn-download">Export</button>
+                <button type="button" id="vaultLock" class="btn-copy">Lock</button>
               </div>
             </div>
             <p class="section-intro" id="vault-status"></p>
             <div class="form-container">
               <div class="upload-section-container">
                 <div class="upload-section-header">
-                  <h3><span class="fold-icon">➕</span> Add existing keys and certificates</h3>
+                  <h3><span class="fold-icon"></span> Add existing keys and certificates</h3>
                 </div>
                 <div class="upload-section-content">
                   <div class="form-group">
@@ -113,7 +121,7 @@
 
               <div class="upload-section-container">
                 <div class="upload-section-header">
-                  <h3><span class="fold-icon">🔑</span> Change master password</h3>
+                  <h3><span class="fold-icon"></span> Change master password</h3>
                 </div>
                 <div class="upload-section-content">
                   <div class="form-row">
@@ -172,7 +180,7 @@
             </div>
           </section>
           <section class="generator-section">
-            <h2>📋 Generated Files</h2>
+            <h2>Generated Files</h2>
             <div id="ssh-output" class="output-container">
               <p class="output-placeholder">Your SSH key will appear here...</p>
             </div>
@@ -219,7 +227,7 @@
 
               <div class="upload-section-container">
                 <div class="upload-section-header">
-                  <h3><span class="fold-icon">📂</span> Or load an existing CA key</h3>
+                  <h3><span class="fold-icon"></span> Or load an existing CA key</h3>
                 </div>
                 <div class="upload-section-content">
                   <div class="form-group">
@@ -278,7 +286,7 @@
           </section>
 
           <section class="generator-section">
-            <h2>📋 Generated Files</h2>
+            <h2>Generated Files</h2>
             <div class="output-container">
               <div id="sshca-output"></div>
               <div id="sshcert-output"></div>
@@ -341,7 +349,7 @@
 
               <div class="upload-section-container">
                 <div class="upload-section-header">
-                  <h3><span class="fold-icon">📂</span> Or load an existing CA</h3>
+                  <h3><span class="fold-icon"></span> Or load an existing CA</h3>
                 </div>
                 <div class="upload-section-content">
                   <div class="form-group">
@@ -423,7 +431,7 @@
           </section>
 
           <section class="generator-section">
-            <h2>📋 Generated Files</h2>
+            <h2>Generated Files</h2>
             <div class="output-container">
               <div id="ca-output"></div>
               <div id="cert-output"></div>
@@ -458,62 +466,45 @@
             </div>
           </section>
           <section class="generator-section">
-            <h2>📋 Details &amp; Conversions</h2>
+            <h2>Details &amp; Conversions</h2>
             <div id="inspect-output" class="output-container">
               <p class="output-placeholder">Details and converted formats will appear here...</p>
             </div>
           </section>
         </div>
-      </div>
     </main>
   </div>
 
-  <!-- Theme Controls Popup -->
-  <div id="themePopup" class="theme-popup">
-    <div class="theme-popup-content">
-      <div class="theme-popup-header">
-        <h3>🎨 Theme Controls</h3>
-        <button id="closeTheme" class="close-btn">×</button>
+  <div id="themePopup" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="themeTitle">
+      <div class="modal-head">
+        <h3 id="themeTitle">Appearance</h3>
+        <button type="button" id="closeTheme" class="icon-btn" aria-label="Close">×</button>
       </div>
-      <div class="theme-controls">
-        <div class="control-group">
-          <label for="contentSlider">📄 Content Color</label>
-          <div class="slider-container">
-            <input type="range" id="contentSlider" min="0" max="360" value="100" class="slider content-slider">
-            <div class="color-preview" id="contentPreview"></div>
-          </div>
-          <div class="color-info">
-            <span id="contentValue">100°</span>
-            <div class="color-swatch" id="contentSwatch"></div>
+      <div class="form-container">
+        <div class="form-group">
+          <label>Theme</label>
+          <div class="segmented" role="group" aria-label="Theme">
+            <button type="button" data-theme-choice="system">System</button>
+            <button type="button" data-theme-choice="light">Light</button>
+            <button type="button" data-theme-choice="dark">Dark</button>
           </div>
         </div>
-        <div class="control-group">
-          <label for="headerSlider">🎨 Header Color</label>
-          <div class="slider-container">
-            <input type="range" id="headerSlider" min="0" max="360" value="210" class="slider header-slider">
-            <div class="color-preview" id="headerPreview"></div>
-          </div>
-          <div class="color-info">
-            <span id="headerValue">210°</span>
-            <div class="color-swatch" id="headerSwatch"></div>
-          </div>
+        <div class="form-group">
+          <label for="accentSlider">Accent <span class="hue-value" id="accentValue"></span></label>
+          <input type="range" id="accentSlider" class="hue-slider" min="0" max="360">
         </div>
-        <div class="control-group">
-          <button id="darkModeToggle" class="dark-mode-toggle">🌙 Dark Mode</button>
+        <div class="form-group">
+          <label for="tintSlider">Neutral tint <span class="hue-value" id="tintValue"></span></label>
+          <input type="range" id="tintSlider" class="hue-slider" min="0" max="360">
         </div>
-        <div class="control-group">
-          <button id="resetTheme" class="btn-secondary reset-theme-btn">🔄 Reset to Defaults</button>
-        </div>
+        <button type="button" id="resetTheme" class="btn-secondary">Reset to defaults</button>
       </div>
     </div>
   </div>
 
-  <!-- Theme Controls Button -->
-  <button id="openTheme" class="theme-button" aria-label="Theme settings">🎨</button>
-
   <script src="kiwi-crypto.js"></script>
   <script src="app.js"></script>
   <script src="vault.js"></script>
-  <script src="theme.js"></script>
 </body>
 </html>

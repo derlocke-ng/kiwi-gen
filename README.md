@@ -7,7 +7,10 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Powered By: JavaScript](https://img.shields.io/badge/Powered%20By-JavaScript-blue.svg)
 
-![Kiwi Key Generator Screenshot](kiwi-gen.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/vault-dark.png">
+  <img alt="Kiwi Key Generator vault" src="screenshots/vault-light.png" width="720">
+</picture>
 
 </div>
 
@@ -48,6 +51,17 @@ Try the live demo directly in your browser: [Kiwi Key Generator](https://derlock
 - Paste or open certificates, CSRs, private/public keys, SSH public keys and SSH certificates (PEM or DER) to see their details and fingerprints
 - Checks whether a key matches a certificate, and whether a certificate was signed by another one in the same input
 - Converts private keys between PKCS#8, PKCS#1 and OpenSSH, adding or removing a passphrase, and public keys between SSH and PEM
+
+## 🖼️ Screenshots
+
+| | |
+|---|---|
+| ![SSH keys](screenshots/ssh-keys-light.png) | ![SSH keys, dark](screenshots/ssh-keys-dark.png) |
+| ![TLS certificates](screenshots/tls-light.png) | ![TLS certificates, dark](screenshots/tls-dark.png) |
+| ![Inspect and convert](screenshots/inspect-light.png) | ![Inspect and convert, dark](screenshots/inspect-dark.png) |
+| ![Appearance settings](screenshots/appearance-light.png) | ![Mobile, dark](screenshots/mobile-dark.png) |
+
+The theme follows your system by default. The appearance button (top right) switches between light and dark and lets you change the accent and neutral tint colors.
 
 ## 🔧 Usage
 
